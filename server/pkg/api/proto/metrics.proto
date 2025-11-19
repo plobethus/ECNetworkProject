@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package metrics;
+
+option go_package = "pkg/api/proto;proto";
+
+service MetricsService {
+  rpc SubmitMetrics (MetricsRequest) returns (MetricsResponse);
+  rpc FetchMetrics (FetchRequest) returns (MetricsList);
+}
+
+message MetricsRequest {
+  string node_id = 1;
+  double latency = 2;
+  double jitter = 3;
+  double packet_loss = 4;
+  double bandwidth = 5;
+  int64 timestamp = 6;
+}
+
+message MetricsResponse {
+  bool success = 1;
+}
+
+message FetchRequest {
+  string node_id = 1;
+}
+
+message Metrics {
+  string node_id = 1;
+  double latency = 2;
+  double jitter = 3;
+  double packet_loss = 4;
+  double bandwidth = 5;
+  int64 timestamp = 6;
+}
+
+message MetricsList {
+  repeated Metrics entries = 1;
+}
