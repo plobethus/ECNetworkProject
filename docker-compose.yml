@@ -1,9 +1,6 @@
-version: '3.9'
-
 services:
   db:
     image: postgres:15
-    container_name: metrics_db
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
@@ -12,30 +9,58 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-    command: ["postgres", "-c", "fsync=off"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d metrics"]
+      interval: 5s
+      retries: 10
 
   migrate:
     image: postgres:15
     depends_on:
-      - db
-    entrypoint: ["bash", "-c", "sleep 3 && psql postgresql://admin:admin@db:5432/metrics -f /migrations/migrations.sql"]
+      db:
+        condition: service_healthy
     volumes:
-      - ./server/pkg/db/migrations.sql:/migrations/migrations.sql
+      - ./server/pkg/db/migrations.sql:/migrations.sql
+    entrypoint: ["bash", "-c", "psql postgresql://admin:admin@db:5432/metrics -f /migrations.sql"]
 
   server:
-    build: ./server
-    container_name: go_grpc_server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     depends_on:
-      - db
-      - migrate
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "50051:50051"
 
   dashboard:
-    build: ./dashboard
-    container_name: dashboard_app
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    depends_on:
+      - server
+      - db
     ports:
       - "8080:8080"
+    volumes:
+      - ./dashboard/static:/app/static
+
+  chartgen:
+    build:
+      context: ./chartgen
+      dockerfile: Dockerfile
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./dashboard/static:/output
+    restart: unless-stopped
+
+  test-agent:
+    build: ./test
+    depends_on:
+      - server
+    restart: always
 
 volumes:
   db_data:

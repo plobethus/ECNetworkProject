@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Network Metrics Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+    <h1>Network Metrics Dashboard</h1>
+    <p class="subtitle">Live monitoring powered by Go + PostgreSQL + C-rendered charts</p>
+</header>
+
+<section class="chart-section">
+    <h2>Latency</h2>
+    <img src="/static/latency.svg?ts={{ ts }}" id="latency" class="chart-img">
+</section>
+
+<section class="chart-section">
+    <h2>Jitter</h2>
+    <img src="/static/jitter.svg?ts={{ ts }}" id="jitter" class="chart-img">
+</section>
+
+<section class="chart-section">
+    <h2>Packet Loss</h2>
+    <img src="/static/packet_loss.svg?ts={{ ts }}" id="packet_loss" class="chart-img">
+</section>
+
+<section class="chart-section">
+    <h2>Bandwidth</h2>
+    <img src="/static/bandwidth.svg?ts={{ ts }}" id="bandwidth" class="chart-img">
+</section>
+
+<script>
+function refreshCharts() {
+    const ts = Date.now();
+    document.getElementById("latency").src = "/static/latency.svg?ts=" + ts;
+    document.getElementById("jitter").src = "/static/jitter.svg?ts=" + ts;
+    document.getElementById("packet_loss").src = "/static/packet_loss.svg?ts=" + ts;
+    document.getElementById("bandwidth").src = "/static/bandwidth.svg?ts=" + ts;
+}
+
+// refresh every 5 seconds (change if you want)
+setInterval(refreshCharts, 5000);
+</script>
+
+</body>
+</html>
