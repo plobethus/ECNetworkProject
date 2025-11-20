@@ -13,14 +13,14 @@ def generate_fake_metrics():
         "jitter": random.uniform(0, 20),
         "packet_loss": random.uniform(0, 5),
         "bandwidth": random.uniform(5, 150),
-        "timestamp": int(time.time()),     # UNIX epoch
+        "timestamp": time.time_ns() // 1_000_000,   # <-- REALTIME timestamps
     }
 
 def main():
     channel = grpc.insecure_channel(SERVER_ADDRESS)
     client = metrics_pb2_grpc.MetricsServiceStub(channel)
 
-    print("Python Test Agent started. Sending metrics every 1 sec…")
+    print("Python Test Agent started. Sending metrics every 100ms…")
 
     while True:
         data = generate_fake_metrics()
@@ -36,11 +36,11 @@ def main():
 
         try:
             resp = client.SubmitMetrics(req)
-            print(f"✔ sent: {data}, success={resp.success}")
+            print(f"✔ sent: {data['timestamp']} success={resp.success}")
         except Exception as e:
             print(f"❌ grpc error: {e}")
 
-        time.sleep(1)
+        time.sleep(0.1)   # <-- send 10 metrics/sec
 
 if __name__ == "__main__":
     main()
