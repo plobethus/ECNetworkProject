@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS metrics;
+
 CREATE TABLE metrics (
   id SERIAL PRIMARY KEY,
   node_id TEXT,
@@ -6,5 +7,5 @@ CREATE TABLE metrics (
   jitter DOUBLE PRECISION,
   packet_loss DOUBLE PRECISION,
   bandwidth DOUBLE PRECISION,
-  timestamp BIGINT
+  timestamp BIGINT NOT NULL
 );
