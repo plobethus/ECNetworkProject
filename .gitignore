@@ -1,2 +1,5 @@
 .DS_store
 /dashboard/static/*.svg
+
+flattener.py
+all_files.txt
