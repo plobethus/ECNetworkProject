@@ -14,35 +14,79 @@
 
 <section class="chart-section">
     <h2>Latency</h2>
-    <img src="/static/latency.svg?ts={{ ts }}" id="latency" class="chart-img">
+    <div class="chart-scroll">
+        <img src="/static/latency.svg?ts={{ ts }}" id="latency" class="metric-chart">
+    </div>
 </section>
 
 <section class="chart-section">
     <h2>Jitter</h2>
-    <img src="/static/jitter.svg?ts={{ ts }}" id="jitter" class="chart-img">
+    <div class="chart-scroll">
+        <img src="/static/jitter.svg?ts={{ ts }}" id="jitter" class="metric-chart">
+    </div>
 </section>
 
 <section class="chart-section">
     <h2>Packet Loss</h2>
-    <img src="/static/packet_loss.svg?ts={{ ts }}" id="packet_loss" class="chart-img">
+    <div class="chart-scroll">
+        <img src="/static/packet_loss.svg?ts={{ ts }}" id="packet_loss" class="metric-chart">
+    </div>
 </section>
 
 <section class="chart-section">
     <h2>Bandwidth</h2>
-    <img src="/static/bandwidth.svg?ts={{ ts }}" id="bandwidth" class="chart-img">
+    <div class="chart-scroll">
+        <img src="/static/bandwidth.svg?ts={{ ts }}" id="bandwidth" class="metric-chart">
+    </div>
 </section>
 
 <script>
-function refreshCharts() {
-    const ts = Date.now();
-    document.getElementById("latency").src = "/static/latency.svg?ts=" + ts;
-    document.getElementById("jitter").src = "/static/jitter.svg?ts=" + ts;
-    document.getElementById("packet_loss").src = "/static/packet_loss.svg?ts=" + ts;
-    document.getElementById("bandwidth").src = "/static/bandwidth.svg?ts=" + ts;
+const evt = new EventSource("/events");
+
+// Track autoscroll state per chart
+const autoScrollState = {};
+
+function setupAutoScroll(id) {
+    const container = document.getElementById(id).parentElement;
+
+    autoScrollState[id] = { auto: true };
+
+    // Detect manual scrolling
+    container.addEventListener("scroll", () => {
+        const maxScroll = container.scrollWidth - container.clientWidth;
+
+        if (container.scrollLeft >= maxScroll - 5) {
+            autoScrollState[id].auto = true;   // back at end → resume autoscroll
+        } else {
+            autoScrollState[id].auto = false;  // user scrolled back → freeze
+        }
+    });
 }
 
-// refresh every 5 seconds (change if you want)
-setInterval(refreshCharts, 5000);
+evt.onmessage = function (e) {
+    const ids = ["latency", "jitter", "packet_loss", "bandwidth"];
+    const ts = Date.now();
+
+    ids.forEach(id => {
+        const img = document.getElementById(id);
+        const container = img.parentElement;
+
+        // cache-bust image
+        const base = img.src.split("?")[0];
+        img.src = `${base}?ts=${ts}`;
+
+        // if autoscroll enabled → scroll to right edge
+        if (autoScrollState[id].auto) {
+            setTimeout(() => {
+                container.scrollLeft = container.scrollWidth;
+            }, 30);
+        }
+    });
+};
+
+window.onload = () => {
+    ["latency", "jitter", "packet_loss", "bandwidth"].forEach(setupAutoScroll);
+};
 </script>
 
 </body>

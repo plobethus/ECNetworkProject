@@ -1,6 +1,6 @@
 FROM alpine:3.19
 
-# Install all required build + Postgres client libraries
+# Install all required build + Postgres client libraries + curl
 RUN apk update && apk add --no-cache \
     gcc \
     g++ \
@@ -11,7 +11,8 @@ RUN apk update && apk add --no-cache \
     zlib-dev \
     libxml2-dev \
     lz4-dev \
-    zstd-dev
+    zstd-dev \
+    curl
 
 WORKDIR /app
 
