@@ -2,19 +2,49 @@
 set -e
 
 SERVER_NAME="podServer"
+BT_MAC=""
 DOCKER_IMAGE="metrics-client:latest"
 
 echo "[INFO] Starting client on host: $(hostname)"
+echo "[INFO] Preparing Bluetooth hardware..."
 
 # -----------------------------------------------------
-# 1. Locate server Bluetooth MAC
+# 0. Fix Bluetooth on Raspberry Pi
 # -----------------------------------------------------
-echo "[INFO] Scanning for server Bluetooth device..."
 
-BT_MAC=""
+echo "[INFO] Unblocking Bluetooth via rfkill..."
+sudo rfkill unblock bluetooth || true
+
+echo "[INFO] Restarting Bluetooth service..."
+sudo systemctl restart bluetooth || true
+sleep 2
+
+echo "[INFO] Powering on hci0..."
+sudo hciconfig hci0 up || true
+
+# Verify it's working
+if ! hciconfig hci0 | grep -q "UP RUNNING"; then
+    echo "[ERROR] Bluetooth adapter hci0 is DOWN."
+    echo "Trying to power cycle Bluetooth ..."
+    sudo hciconfig hci0 down || true
+    sleep 1
+    sudo hciconfig hci0 up || true
+fi
+
+if ! hciconfig hci0 | grep -q "UP RUNNING"; then
+    echo "[FATAL] Cannot bring up Bluetooth adapter hci0."
+    echo "Please check Pi firmware or hardware."
+    exit 1
+fi
+
+echo "[INFO] Bluetooth adapter is up."
+
+# -----------------------------------------------------
+# 1. Scan for the server
+# -----------------------------------------------------
+echo "[INFO] Scanning for server named: $SERVER_NAME"
 
 for i in {1..20}; do
-    bluetoothctl --timeout 5 scan on >/dev/null 2>&1
     BT_MAC=$(bluetoothctl devices | grep "$SERVER_NAME" | awk '{print $2}')
 
     if [ -n "$BT_MAC" ]; then
@@ -22,64 +52,73 @@ for i in {1..20}; do
         break
     fi
 
-    echo "[WARN] Server not found yet..."
+    echo "[WARN] Server not found, rescanning..."
+    bluetoothctl scan on >/dev/null 2>&1 &
+    sleep 4
+    bluetoothctl scan off >/dev/null 2>&1
 done
 
 if [ -z "$BT_MAC" ]; then
-    echo "[ERROR] Could not find podServer after multiple scans."
+    echo "[ERROR] Could not find server after repeated attempts."
     exit 1
 fi
 
 # -----------------------------------------------------
-# 2. Pair / trust / connect
+# 2. Pair & trust & connect
 # -----------------------------------------------------
-echo "[INFO] Pairing..."
+echo "[INFO] Pairing with server ($BT_MAC)..."
+
 bluetoothctl trust "$BT_MAC"
 bluetoothctl pair "$BT_MAC" || true
 bluetoothctl connect "$BT_MAC" || true
 
 # -----------------------------------------------------
-# 3. Create Bluetooth PAN interface (bnep0)
+# 3. Start Bluetooth PAN (bnep0)
 # -----------------------------------------------------
-echo "[INFO] Starting PAN client mode..."
-sudo bt-network -c "$BT_MAC" nap &
+echo "[INFO] Starting PAN network (bnep0)..."
+sleep 2
 
-sleep 3
+sudo bash -c '
+if ! ip link show bnep0 >/dev/null 2>&1; then
+    echo "[INFO] Attempting to create bnep0 using pand..."
+    pand --connect '"$BT_MAC"' --service NAP || true
+fi
+'
 
-# Wait for interface
-for i in {1..15}; do
+# Wait for bnep0
+for i in {1..10}; do
     if ip link show bnep0 >/dev/null 2>&1; then
-        echo "[INFO] bnep0 created!"
+        echo "[INFO] PAN interface bnep0 is up."
         break
     fi
-    echo "[INFO] Waiting for bnep0..."
     sleep 1
 done
 
 if ! ip link show bnep0 >/dev/null 2>&1; then
-    echo "[ERROR] Bluetooth PAN did not come up."
+    echo "[ERROR] Failed to create Bluetooth PAN interface."
     exit 1
 fi
 
 # -----------------------------------------------------
-# 4. Request DHCP from server
+# 4. DHCP request
 # -----------------------------------------------------
-echo "[INFO] Requesting DHCP IP from podServer..."
-sudo dhclient -v bnep0 || true
+echo "[INFO] Requesting IP address via DHCP..."
+sudo dhclient bnep0 || true
 
 IP=$(ip -4 addr show bnep0 | grep -oP '(?<=inet ).*(?=/)' || true)
 
 if [ -z "$IP" ]; then
-    echo "[ERROR] No IP received from server!"
-    exit 1
+    echo "[WARN] No DHCP lease yet. Waiting 3s..."
+    sleep 3
+    IP=$(ip -4 addr show bnep0 | grep -oP '(?<=inet ).*(?=/)' || true)
 fi
 
-echo "[INFO] Assigned IP on bnep0: $IP"
+echo "[INFO] Assigned IP: $IP"
 
 # -----------------------------------------------------
 # 5. Launch client container
 # -----------------------------------------------------
-echo "[INFO] Starting client Docker container..."
+echo "[INFO] Starting metrics client container via Docker..."
 
 docker rm -f metrics-client >/dev/null 2>&1 || true
 
@@ -89,5 +128,5 @@ docker run -d \
     -e NODE_ID="$(hostname)" \
     "$DOCKER_IMAGE"
 
-echo "[READY] Client connected via Bluetooth PAN → podServer"
-echo "[READY] gRPC client container running."
+echo "[READY] Client is fully connected to podServer over Bluetooth PAN."
+echo "[READY] Metrics client container is running."
