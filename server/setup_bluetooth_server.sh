@@ -23,26 +23,35 @@ sudo ip addr flush dev $BRIDGE_IFACE || true
 sudo ip addr add $SERVER_IP/24 dev $BRIDGE_IFACE || true
 sudo ip link set $BRIDGE_IFACE up
 
-echo "[5/9] Configuring dnsmasq DHCP server for PAN..."
+echo "[5/9] Configuring dnsmasq for DHCP over PAN..."
 sudo tee /etc/dnsmasq.d/bt-pan.conf > /dev/null <<EOF
-# DHCP settings for Bluetooth PAN
+# DHCP for Bluetooth PAN
 interface=$BRIDGE_IFACE
 dhcp-range=$DHCP_RANGE_START,$DHCP_RANGE_END,12h
-dhcp-option=3,$SERVER_IP     # gateway
-dhcp-option=6,8.8.8.8,1.1.1.1 # DNS
+dhcp-option=3,$SERVER_IP
+dhcp-option=6,8.8.8.8,1.1.1.1
 EOF
 
 echo "[6/9] Restarting dnsmasq..."
 sudo systemctl restart dnsmasq
 
-echo "[7/9] Starting Bluetooth NAP (Network Access Point)..."
-sudo bt-pan nop $BRIDGE_IFACE || sudo bt-pan nap $BRIDGE_IFACE &
+echo "[7/9] Enabling Bluetooth Network Access Point (NAP)..."
+
+# Advertise the NAP service
+sudo dbus-send --system --dest=org.bluez \
+  /org/bluez/hci0 \
+  org.bluez.Adapter1.SetDiscoveryFilter \
+  dict:string:string:"Transport","bredr"
+
+# Enable the NAP role
+sudo bt-network -s nap $BRIDGE_IFACE &
+
 sleep 2
 
-echo "[8/9] Enabling IP forwarding..."
-echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward > /dev/null
-sudo sed -i 's/^#net.ipv4.ip_forward=.*/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+echo "[8/9] Enabling IP forwarding (Pi OS style)..."
+echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/98-rpi.conf >/dev/null
+sudo systemctl restart systemd-sysctl
 
 echo "[9/9] DONE!"
-echo "podServer is now a full Bluetooth router with DHCP assignments."
-echo "Clients will auto-connect and receive IP addresses automatically."
+echo "podServer is now a full Bluetooth PAN router with DHCP."
+echo "Clients will auto-connect and receive IP automatically."
