@@ -1,5 +1,5 @@
 .DS_store
-/dashboard/static/bandwidth.svg
-/dashboard/static/jitter.svg
-/dashboard/static/latency.svg
-/dashboard/static/packet_loss.svg
+/dashboard/static/*.svg
+
+flattener.py
+all_files.txt
