@@ -23,14 +23,36 @@ install_if_missing() {
 }
 
 # Auto-install core Bluetooth tools if missing (Debian/Raspberry Pi OS).
-if ! command -v bt-network >/dev/null 2>&1; then
-    if ! command -v apt-get >/dev/null 2>&1; then
+if command -v apt-get >/dev/null 2>&1; then
+    # Bluetooth tools
+    if ! command -v bt-network >/dev/null 2>&1; then
+        install_if_missing bluez
+        install_if_missing bluez-tools
+        install_if_missing rfkill
+    fi
+
+    # DHCP client
+    if ! command -v dhclient >/dev/null 2>&1; then
+        install_if_missing isc-dhcp-client
+    fi
+
+    # ip utility (iproute2)
+    if ! command -v ip >/dev/null 2>&1; then
+        install_if_missing iproute2
+    fi
+else
+    if ! command -v bt-network >/dev/null 2>&1; then
         echo "[FATAL] bt-network missing and apt-get not available to install bluez-tools."
         exit 1
     fi
-    install_if_missing bluez
-    install_if_missing bluez-tools
-    install_if_missing rfkill
+    if ! command -v dhclient >/dev/null 2>&1; then
+        echo "[FATAL] dhclient missing and apt-get not available to install isc-dhcp-client."
+        exit 1
+    fi
+    if ! command -v ip >/dev/null 2>&1; then
+        echo "[FATAL] ip (iproute2) missing and apt-get not available to install it."
+        exit 1
+    fi
 fi
 
 require_cmd bluetoothctl
