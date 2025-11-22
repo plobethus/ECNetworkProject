@@ -13,6 +13,26 @@ require_cmd() {
     fi
 }
 
+install_if_missing() {
+    local pkg=$1
+    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+        echo "[INFO] Installing $pkg ..."
+        sudo apt-get update -y
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg"
+    fi
+}
+
+# Auto-install core Bluetooth tools if missing (Debian/Raspberry Pi OS).
+if ! command -v bt-network >/dev/null 2>&1; then
+    if ! command -v apt-get >/dev/null 2>&1; then
+        echo "[FATAL] bt-network missing and apt-get not available to install bluez-tools."
+        exit 1
+    fi
+    install_if_missing bluez
+    install_if_missing bluez-tools
+    install_if_missing rfkill
+fi
+
 require_cmd bluetoothctl
 require_cmd bt-network
 require_cmd ip
