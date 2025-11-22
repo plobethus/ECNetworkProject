@@ -72,6 +72,11 @@ echo "[INFO] Powering on hci0..."
 sudo hciconfig hci0 up || true
 
 if ! sudo bluetoothctl show | grep -q "Powered: yes"; then
+    echo "[WARN] Bluetooth adapter reported as off; powering on via bluetoothctl..."
+    sudo bluetoothctl power on || true
+fi
+
+if ! sudo bluetoothctl show | grep -q "Powered: yes"; then
     echo "[ERROR] Bluetooth adapter hci0 is not powered."
     exit 1
 fi
@@ -92,9 +97,15 @@ for i in $(seq 1 "$SCAN_ATTEMPTS"); do
     fi
 
     echo "[WARN] Server not found, rescanning (attempt $i/$SCAN_ATTEMPTS)..."
-    sudo bluetoothctl scan on >/dev/null 2>&1 &
-    sleep 4
+    set +e
+    sudo bluetoothctl --timeout 5 scan on >/tmp/bt-scan.log 2>&1
+    SCAN_STATUS=$?
     sudo bluetoothctl scan off >/dev/null 2>&1
+    set -e
+
+    if [ "$SCAN_STATUS" -ne 0 ]; then
+        echo "[WARN] bluetoothctl scan on failed with status $SCAN_STATUS (see /tmp/bt-scan.log)."
+    fi
 done
 
 if [ -z "$BT_MAC" ]; then
