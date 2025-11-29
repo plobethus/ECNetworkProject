@@ -63,6 +63,13 @@ services:
       - CHARTGEN_NOTIFY_URL=${CHARTGEN_NOTIFY_URL:-http://dashboard:8080/event/chart-updated}
     restart: unless-stopped
 
+  iperf3:
+    image: networkstatic/iperf3:latest
+    command: -s
+    ports:
+      - "5201:5201"
+    restart: unless-stopped
+
   test-agent:
     build: ./test
     depends_on:

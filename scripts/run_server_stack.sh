@@ -51,7 +51,7 @@ if [[ "${HOST_DASHBOARD}" -eq 1 && -z "${CHARTGEN_NOTIFY_URL:-}" ]]; then
 fi
 
 echo "Starting services: ${STACK_SERVICES}"
-${COMPOSE_BIN} -f docker-compose.yml up -d "${BUILD_FLAG[@]}" ${STACK_SERVICES}
+${COMPOSE_BIN} -f docker-compose.yml up -d "${BUILD_FLAG[@]}" ${STACK_SERVICES} iperf3
 
 echo "Tail logs with:"
 echo "  ${COMPOSE_BIN} logs -f ${STACK_SERVICES}"
