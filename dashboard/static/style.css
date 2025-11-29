@@ -191,6 +191,20 @@ h1 {
     color: #6e7b8c;
 }
 
+.alerts {
+    margin-top: 10px;
+    padding: 10px;
+    background: #2a1b1b;
+    border: 1px solid #5a2b2b;
+    border-radius: 8px;
+}
+
+.alert-item {
+    color: #ffb3b3;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
 /* ===========================
    CONTROL & LOG SECTION
    =========================== */
