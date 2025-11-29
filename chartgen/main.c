@@ -6,6 +6,7 @@
 #include <libpq-fe.h>
 
 #define DEFAULT_NOTIFY_URL "http://dashboard:8080/event/chart-updated"
+#define DEFAULT_NOTIFY_URL_ALT "http://host.docker.internal:8080/event/chart-updated"
 
 #define MAX_POINTS          5000
 #define MAX_NODES           16
@@ -268,16 +269,24 @@ int main(void) {
     if (!notify_url || strlen(notify_url) == 0) {
         notify_url = DEFAULT_NOTIFY_URL;
     }
+    const char *notify_url_alt = getenv("CHARTGEN_NOTIFY_URL_ALT");
+    if (!notify_url_alt || strlen(notify_url_alt) == 0) {
+        notify_url_alt = DEFAULT_NOTIFY_URL_ALT;
+    }
 
     while (1) {
         generate_charts_once();
 
         // Notify dashboard (SSE)
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "curl -sS %s >/dev/null 2>&1", notify_url);
-        int rc = system(cmd);
-        if (rc != 0) {
-            fprintf(stderr, "Warning: SSE notify fail rc=%d\n", rc);
+        const char *urls[2] = {notify_url, notify_url_alt};
+        for (int i = 0; i < 2; i++) {
+            if (!urls[i] || strlen(urls[i]) == 0) continue;
+            char cmd[512];
+            snprintf(cmd, sizeof(cmd), "curl -sS %s >/dev/null 2>&1", urls[i]);
+            int rc = system(cmd);
+            if (rc != 0) {
+                fprintf(stderr, "Warning: SSE notify fail rc=%d url=%s\n", rc, urls[i]);
+            }
         }
 
         usleep(200 * 1000);  // 200 ms

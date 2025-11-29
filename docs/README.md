@@ -20,6 +20,10 @@ cd scripts
 
 start ap to start network, stop ap to stop it 
 
+## stop server
+
+./stop_server_stack.sh
+
 # connect pod to server
 
 cd client
