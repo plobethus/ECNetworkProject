@@ -73,6 +73,23 @@ wpa_cli -i "${WLAN_IFACE}" reconfigure >/dev/null 2>&1 \
   || systemctl restart "wpa_supplicant@${WLAN_IFACE}.service" >/dev/null 2>&1 \
   || systemctl restart wpa_supplicant >/dev/null 2>&1 \
   || wpa_supplicant -B -i "${WLAN_IFACE}" -c /etc/wpa_supplicant/wpa_supplicant.conf
+
+# Force wpa_supplicant to only use the target network
+wpa_cli -i "${WLAN_IFACE}" remove_network all >/dev/null 2>&1 || true
+net_id="$(wpa_cli -i "${WLAN_IFACE}" add_network | tr -d '\r')"
+if [[ -z "${net_id}" ]]; then
+  echo "Failed to add wpa_supplicant network for ${SSID}" >&2
+  exit 1
+fi
+wpa_cli -i "${WLAN_IFACE}" set_network "${net_id}" ssid "\"${SSID}\"" >/dev/null
+wpa_cli -i "${WLAN_IFACE}" set_network "${net_id}" psk "\"${PSK}\"" >/dev/null
+wpa_cli -i "${WLAN_IFACE}" set_network "${net_id}" key_mgmt WPA-PSK >/dev/null
+wpa_cli -i "${WLAN_IFACE}" set_network "${net_id}" priority 10 >/dev/null
+wpa_cli -i "${WLAN_IFACE}" enable_network "${net_id}" >/dev/null
+wpa_cli -i "${WLAN_IFACE}" select_network "${net_id}" >/dev/null
+wpa_cli -i "${WLAN_IFACE}" save_config >/dev/null
+
+# Renew DHCP after selecting network
 if command -v dhclient >/dev/null 2>&1; then
   dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
   dhclient "${WLAN_IFACE}" 2>/dev/null || true
@@ -92,6 +109,26 @@ for attempt in $(seq 1 6); do
   echo "  waiting... (${attempt}/6)"
   sleep 2
 done
+
+current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
+if [[ "${current_ip}" != 10.42.* ]]; then
+  echo "  warning: IP is ${current_ip:-none}, expected 10.42.x.x — renewing DHCP..."
+  if command -v dhclient >/dev/null 2>&1; then
+    dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
+    dhclient "${WLAN_IFACE}" 2>/dev/null || true
+  elif command -v dhcpcd >/dev/null 2>&1; then
+    dhcpcd -k "${WLAN_IFACE}" 2>/dev/null || true
+    dhcpcd -n "${WLAN_IFACE}"
+  fi
+  sleep 2
+  current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
+fi
+
+if [[ "${current_ip}" != 10.42.* ]]; then
+  echo "ERROR: still not on podNet; wlan0 IP is ${current_ip:-none}. Check AP and try again." >&2
+  exit 1
+fi
+echo "  acquired IP ${current_ip}"
 
 echo "[3/4] Updating client/config.json with server IP and node ID..."
 export CONFIG_PATH
