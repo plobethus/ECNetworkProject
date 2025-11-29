@@ -18,6 +18,7 @@ SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
+PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -136,6 +137,7 @@ export CONFIG_PATH
 export SERVER_IP
 export NODE_ID
 export INTERVAL_SECONDS
+export PING_TARGET
 python3 - <<'PY'
 import json
 import os
@@ -152,6 +154,7 @@ with config_path.open() as f:
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
 data["node_id"] = os.environ["NODE_ID"]
+data["ping_target"] = os.environ["PING_TARGET"]
 interval = os.environ.get("INTERVAL_SECONDS")
 if interval:
     try:
