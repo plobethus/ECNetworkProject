@@ -18,9 +18,11 @@ SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
+
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 SKIP_PIP="${SKIP_PIP:-0}"
 PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
+
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -164,7 +166,9 @@ export CONFIG_PATH
 export SERVER_IP
 export NODE_ID
 export INTERVAL_SECONDS
+
 export PING_TARGET
+
 python3 - <<'PY'
 import json
 import os
@@ -181,7 +185,9 @@ with config_path.open() as f:
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
 data["node_id"] = os.environ["NODE_ID"]
+
 data["ping_target"] = os.environ["PING_TARGET"]
+
 interval = os.environ.get("INTERVAL_SECONDS")
 if interval:
     try:
@@ -221,6 +227,7 @@ PY
     else
       pip install --retries 1 --timeout 10 -r "${PROJECT_ROOT}/client/requirements.txt"
     fi
+
   fi
 
   sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PYTHONPATH}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
@@ -228,3 +235,4 @@ else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
 fi
+
