@@ -44,6 +44,11 @@ services:
       - "8080:8080"
     volumes:
       - ./dashboard/static:/app/static
+      - ./server:/host/server:ro
+    environment:
+      AP_SETUP_SCRIPT: /host/server/setup_wifi_ap.sh
+      AP_TEARDOWN_SCRIPT: /host/server/teardown_wifi_ap.sh
+      AP_USE_SUDO: "0"
 
   chartgen:
     build:
@@ -54,6 +59,15 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./dashboard/static:/output
+    environment:
+      - CHARTGEN_NOTIFY_URL=${CHARTGEN_NOTIFY_URL:-http://dashboard:8080/event/chart-updated}
+    restart: unless-stopped
+
+  iperf3:
+    image: networkstatic/iperf3:latest
+    command: -s
+    ports:
+      - "5201:5201"
     restart: unless-stopped
 
   test-agent:

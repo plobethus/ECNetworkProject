@@ -88,6 +88,8 @@ const logStatus = document.getElementById("log-status");
 const logBuffer = [];
 const LOG_MAX = 250;
 const lastPodSeen = {};
+let lastChartRefresh = Date.now();
+const CHART_FALLBACK_MS = 4000;
 
 function setupAutoScroll(id) {
     const container = document.getElementById(id).parentElement;
@@ -251,7 +253,7 @@ function maybeRefreshPods() {
     fetchPods(false);
 }
 
-evt.onmessage = function (e) {
+function refreshCharts() {
     const ids = ["latency", "jitter", "packet_loss", "bandwidth"];
     const ts = Date.now();
 
@@ -270,6 +272,11 @@ evt.onmessage = function (e) {
             }, 30);
         }
     });
+    lastChartRefresh = Date.now();
+}
+
+evt.onmessage = function (e) {
+    refreshCharts();
 
     maybeRefreshPods();
 };
@@ -278,6 +285,12 @@ window.onload = () => {
     ["latency", "jitter", "packet_loss", "bandwidth"].forEach(setupAutoScroll);
     wireButtons();
     fetchPods(true);
+    // Fallback chart refresh if SSE notify fails
+    setInterval(() => {
+        if (Date.now() - lastChartRefresh > CHART_FALLBACK_MS) {
+            refreshCharts();
+        }
+    }, 2000);
     setInterval(() => fetchPods(true), POD_REFRESH_MS);
 };
 </script>

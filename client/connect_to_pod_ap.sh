@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Connect a Raspberry Pi 3 (podOne/podTwo/podThree) to the podServer Wi-Fi AP
+# Connect a Raspberry Pi client (podOne/podTwo/podThree) to the podServer Wi-Fi AP
 # and start the Python metrics sender once connected.
 # Usage: sudo ./connect_to_pod_ap.sh
 # Tunables (env vars):
-#   SSID, PSK, WLAN_IFACE, SERVER_IP, CONFIG_PATH, NODE_ID, START_METRICS
+#   SSID, PSK, WLAN_IFACE, SERVER_IP, CONFIG_PATH, NODE_ID, START_METRICS,
+#   SCAN_RETRIES, SCAN_DELAY_SEC, VENV_DIR, INTERVAL_SECONDS, PING_TARGET,
+#   SKIP_PIP, PIP_FIND_LINKS
 
 set -euo pipefail
 
@@ -18,6 +20,11 @@ SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
+PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
+SKIP_PIP="${SKIP_PIP:-0}"
+PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -34,11 +41,33 @@ if ! command -v iw >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "[0/4] Ensuring Python deps (grpc) are installed..."
+if [[ ! -d "${VENV_DIR}" ]]; then
+  python3 -m venv "${VENV_DIR}"
+fi
+# shellcheck disable=SC1090
+source "${VENV_DIR}/bin/activate"
+if ! python - <<'PY' >/dev/null 2>&1
+import importlib.util, sys
+sys.exit(0 if importlib.util.find_spec("grpc") else 1)
+PY
+then
+  if [[ "${SKIP_PIP}" == "1" ]]; then
+    echo "Dependencies missing (grpc). SKIP_PIP=1 set; install requirements before rerunning." >&2
+    exit 1
+  fi
+  pip install --upgrade pip --retries 1 --timeout 10
+  if [[ -n "${PIP_FIND_LINKS}" ]]; then
+    pip install --no-index --find-links "${PIP_FIND_LINKS}" -r "${PROJECT_ROOT}/client/requirements.txt"
+  else
+    pip install --retries 1 --timeout 10 -r "${PROJECT_ROOT}/client/requirements.txt"
+  fi
+fi
+
 echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
   scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
-  # Extract SSIDs, strip whitespace, compare lowercased
   lc_ssid="$(echo "${SSID}" | tr '[:upper:]' '[:lower:]')"
   seen_list="$(echo "${scan_out}" | sed -n 's/^[[:space:]]*SSID:[[:space:]]*//Ip' | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]*$//' )"
   if echo "${seen_list}" | grep -Fxq "${lc_ssid}"; then
@@ -75,6 +104,7 @@ wpa_cli -i "${WLAN_IFACE}" reconfigure >/dev/null 2>&1 \
   || systemctl restart wpa_supplicant >/dev/null 2>&1 \
   || wpa_supplicant -B -i "${WLAN_IFACE}" -c /etc/wpa_supplicant/wpa_supplicant.conf
 
+# Force wpa_supplicant to only use the target network
 # Force wpa_supplicant to only use the target network
 wpa_cli -i "${WLAN_IFACE}" remove_network all >/dev/null 2>&1 || true
 net_id="$(wpa_cli -i "${WLAN_IFACE}" add_network | tr -d '\r')"
@@ -136,6 +166,7 @@ export CONFIG_PATH
 export SERVER_IP
 export NODE_ID
 export INTERVAL_SECONDS
+export PING_TARGET
 python3 - <<'PY'
 import json
 import os
@@ -152,6 +183,7 @@ with config_path.open() as f:
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
 data["node_id"] = os.environ["NODE_ID"]
+data["ping_target"] = os.environ["PING_TARGET"]
 interval = os.environ.get("INTERVAL_SECONDS")
 if interval:
     try:
@@ -165,29 +197,15 @@ PY
 
 echo "[4/4] Bringing up metrics sender..."
 if [[ "${START_METRICS}" == "1" ]]; then
-  PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   cd "${PROJECT_ROOT}"
   export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/client"
 
-  # Ensure venv and deps (grpc) are present
-  if [[ ! -d "${VENV_DIR}" ]]; then
-    python3 -m venv "${VENV_DIR}"
-  fi
+  # Reuse the same venv prepared earlier; dependencies already verified
   # shellcheck disable=SC1090
   source "${VENV_DIR}/bin/activate"
-  if ! python - <<'PY' >/dev/null 2>&1
-import importlib.util
-import sys
-sys.exit(0 if importlib.util.find_spec("grpc") else 1)
-PY
-  then
-    pip install --quiet --upgrade pip
-    pip install --quiet -r "${PROJECT_ROOT}/client/requirements.txt"
-  fi
 
   sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PYTHONPATH}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
 else
   echo "START_METRICS=0, skipping automatic launch."
-  echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
+  echo "Manual run: (cd ${PROJECT_ROOT} && PYTHONPATH=${PROJECT_ROOT}:${PROJECT_ROOT}/client python3 -m client.scheduler)"
 fi
-
