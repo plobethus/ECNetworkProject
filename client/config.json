@@ -1,8 +1,8 @@
 {
-  "grpc_server_host": "192.168.1.10",
+  "grpc_server_host": "10.42.0.1",
   "grpc_server_port": 50051,
-  "iperf_server_host": "192.168.1.10",
-  "ping_target": "8.8.8.8",
-  "interval_seconds": 300,
-  "node_id": "pi3-node-1"
+  "iperf_server_host": "10.42.0.1",
+  "ping_target": "1.1.1.1",
+  "interval_seconds": 60,
+  "node_id": "podOne"
 }

@@ -12,6 +12,39 @@
     <p class="subtitle">Live monitoring powered by Go + PostgreSQL + C-rendered charts</p>
 </header>
 
+<section class="control-section">
+    <div class="control-header">
+        <div>
+            <h2>Access Point Control</h2>
+            <p class="subtitle">Start/stop podServer Wi-Fi and watch logs</p>
+        </div>
+        <div class="control-actions">
+            <button class="btn primary" id="btn-start-ap">Start AP</button>
+            <button class="btn danger" id="btn-stop-ap">Stop AP</button>
+        </div>
+    </div>
+    <div class="log-container">
+        <div class="log-header">
+            <span>Live Logs</span>
+            <span class="pill" id="log-status">connecting...</span>
+        </div>
+        <pre id="log-output" class="log-output">Waiting for log stream...</pre>
+    </div>
+</section>
+
+<section class="pod-section">
+    <div class="pod-section-header">
+        <div>
+            <h2>Pod Status</h2>
+            <p class="subtitle">podServer AP plus podOne / podTwo / podThree clients</p>
+        </div>
+        <div class="pill" id="pods-updated">Loading...</div>
+    </div>
+    <div class="pod-grid" id="pod-grid">
+        <div class="pod-card skeleton">Loading pod data...</div>
+    </div>
+</section>
+
 <section class="chart-section">
     <h2>Latency</h2>
     <div class="chart-scroll">
@@ -42,9 +75,19 @@
 
 <script>
 const evt = new EventSource("/events");
+const logEvt = new EventSource("/logs");
 
 // Track autoscroll state per chart
 const autoScrollState = {};
+const podGrid = document.getElementById("pod-grid");
+const podsUpdated = document.getElementById("pods-updated");
+const POD_REFRESH_MS = 8000;
+let lastPodFetch = 0;
+const logOutput = document.getElementById("log-output");
+const logStatus = document.getElementById("log-status");
+const logBuffer = [];
+const LOG_MAX = 250;
+const lastPodSeen = {};
 
 function setupAutoScroll(id) {
     const container = document.getElementById(id).parentElement;
@@ -61,6 +104,151 @@ function setupAutoScroll(id) {
             autoScrollState[id].auto = false;  // user scrolled back → freeze
         }
     });
+}
+
+function formatAgo(tsMs) {
+    if (!tsMs) return "no data";
+    const delta = Date.now() - tsMs;
+    if (delta < 5000) return "just now";
+    const seconds = Math.floor(delta / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+}
+
+function appendLog(payload) {
+    const ts = payload.ts ? new Date(payload.ts).toLocaleTimeString() : "--:--:--";
+    const level = (payload.level || "info").toUpperCase();
+    const src = payload.source || "log";
+    const msg = payload.message || "";
+    logBuffer.push(`[${ts}] [${src}] [${level}] ${msg}`);
+    while (logBuffer.length > LOG_MAX) logBuffer.shift();
+    logOutput.textContent = logBuffer.join("\n");
+    logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+logEvt.onopen = () => {
+    logStatus.textContent = "connected";
+};
+
+logEvt.onerror = () => {
+    logStatus.textContent = "disconnected";
+};
+
+logEvt.onmessage = (e) => {
+    try {
+        const payload = JSON.parse(e.data);
+        appendLog(payload);
+    } catch (err) {
+        console.error("log parse error", err);
+    }
+};
+
+async function postJSON(url) {
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) throw new Error(`request failed ${res.status}`);
+    return res.json();
+}
+
+function wireButtons() {
+    const startBtn = document.getElementById("btn-start-ap");
+    const stopBtn = document.getElementById("btn-stop-ap");
+
+    startBtn.onclick = async () => {
+        startBtn.disabled = true;
+        appendLog({ ts: Date.now(), source: "ui", level: "info", message: "Starting AP..." });
+        try {
+            await postJSON("/api/ap/start");
+        } catch (err) {
+            appendLog({ ts: Date.now(), source: "ui", level: "error", message: `Start failed: ${err}` });
+        } finally {
+            startBtn.disabled = false;
+        }
+    };
+
+    stopBtn.onclick = async () => {
+        stopBtn.disabled = true;
+        appendLog({ ts: Date.now(), source: "ui", level: "info", message: "Stopping AP..." });
+        try {
+            await postJSON("/api/ap/stop");
+        } catch (err) {
+            appendLog({ ts: Date.now(), source: "ui", level: "error", message: `Stop failed: ${err}` });
+        } finally {
+            stopBtn.disabled = false;
+        }
+    };
+}
+
+function fmtMetric(value, unit) {
+    if (value === null || value === undefined) return "--";
+    return `${value.toFixed(2)} ${unit}`;
+}
+
+function renderPods(data) {
+    podGrid.innerHTML = "";
+    data.pods.forEach(pod => {
+        const metrics = pod.metrics || {};
+        const card = document.createElement("div");
+        card.className = "pod-card";
+        card.innerHTML = `
+            <div class="pod-card-header">
+                <div>
+                    <div class="pod-label">${pod.label || pod.node_id}</div>
+                    <div class="pod-id">${pod.node_id}</div>
+                </div>
+                <span class="status-pill ${pod.status}">${pod.status}</span>
+            </div>
+            <div class="pod-meta">
+                <div><span class="meta-label">Last seen</span><span class="meta-value">${formatAgo(pod.last_seen_ms)}</span></div>
+                <div><span class="meta-label">Latency</span><span class="meta-value">${fmtMetric(metrics.latency, "ms")}</span></div>
+                <div><span class="meta-label">Jitter</span><span class="meta-value">${fmtMetric(metrics.jitter, "ms")}</span></div>
+                <div><span class="meta-label">Packet loss</span><span class="meta-value">${fmtMetric(metrics.packet_loss, "%")}</span></div>
+                <div><span class="meta-label">Bandwidth</span><span class="meta-value">${fmtMetric(metrics.bandwidth, "Mbps")}</span></div>
+            </div>
+        `;
+        podGrid.appendChild(card);
+    });
+
+    if (data.generated_at_ms) {
+        podsUpdated.textContent = `Updated ${formatAgo(data.generated_at_ms)}`;
+    } else {
+        podsUpdated.textContent = "Updated";
+    }
+}
+
+async function fetchPods(force = false) {
+    const now = Date.now();
+    if (!force && now - lastPodFetch < POD_REFRESH_MS) return;
+    lastPodFetch = now;
+    try {
+        const res = await fetch("/api/pods");
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+        renderPods(data);
+        // Log when a pod reports new metrics
+        (data.pods || []).forEach(pod => {
+            if (!pod.last_seen_ms) return;
+            if (lastPodSeen[pod.node_id] !== pod.last_seen_ms) {
+                lastPodSeen[pod.node_id] = pod.last_seen_ms;
+                const m = pod.metrics || {};
+                appendLog({
+                    ts: Date.now(),
+                    source: pod.node_id,
+                    level: pod.status === "online" ? "success" : "warn",
+                    message: `metrics: latency=${fmtMetric(m.latency, "ms")} jitter=${fmtMetric(m.jitter, "ms")} loss=${fmtMetric(m.packet_loss, "%")} bw=${fmtMetric(m.bandwidth, "Mbps")}`,
+                });
+            }
+        });
+    } catch (err) {
+        podsUpdated.textContent = "pod fetch failed";
+        console.error(err);
+    }
+}
+
+function maybeRefreshPods() {
+    fetchPods(false);
 }
 
 evt.onmessage = function (e) {
@@ -82,10 +270,15 @@ evt.onmessage = function (e) {
             }, 30);
         }
     });
+
+    maybeRefreshPods();
 };
 
 window.onload = () => {
     ["latency", "jitter", "packet_loss", "bandwidth"].forEach(setupAutoScroll);
+    wireButtons();
+    fetchPods(true);
+    setInterval(() => fetchPods(true), POD_REFRESH_MS);
 };
 </script>
 
