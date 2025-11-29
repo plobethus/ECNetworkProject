@@ -112,6 +112,7 @@ PY
   AP_TEARDOWN_SCRIPT="${ROOT}/server/teardown_wifi_ap.sh" \
   AP_USE_SUDO=1 \
   DATABASE_URL="postgresql://admin:admin@localhost:5432/metrics" \
+  PODSERVER_HEALTH_HOST="localhost" \
   PYTHONPATH="${ROOT}" \
     "${DASH_CMD[@]}" > "${HOST_DASH_LOG}" 2>&1 &
 

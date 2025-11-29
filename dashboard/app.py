@@ -174,12 +174,16 @@ def fetch_pod_snapshot():
     now_sec = time.time()
     by_node = {row["node_id"]: row for row in rows}
 
-    def _check_tcp(host: str, port: int, timeout: float) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except OSError:
-            return False
+    def _check_tcp(hosts, port: int, timeout: float) -> bool:
+        for h in hosts:
+            if not h:
+                continue
+            try:
+                with socket.create_connection((h, port), timeout=timeout):
+                    return True
+            except OSError:
+                continue
+        return False
 
     def build_entry(node_id: str, label: str):
         row = by_node.get(node_id)
@@ -201,10 +205,16 @@ def fetch_pod_snapshot():
 
         # Special-case podServer: if no metrics yet, consider AP/server reachable via TCP
         if row is None and node_id == "podServer":
-            if _check_tcp(PODSERVER_HEALTH_HOST, PODSERVER_HEALTH_PORT, PODSERVER_HEALTH_TIMEOUT):
+            candidates = [
+                PODSERVER_HEALTH_HOST,
+                "localhost",
+                "127.0.0.1",
+                "server",
+            ]
+            if _check_tcp(candidates, PODSERVER_HEALTH_PORT, PODSERVER_HEALTH_TIMEOUT):
                 last_seen_ms = int(time.time() * 1000)
                 age = 0
-                status = "ap-only"
+                status = "online"
 
         return {
             "node_id": node_id,

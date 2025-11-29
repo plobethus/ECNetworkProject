@@ -19,6 +19,8 @@ SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
+SKIP_PIP="${SKIP_PIP:-0}"
+PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -33,6 +35,31 @@ fi
 if ! command -v iw >/dev/null 2>&1; then
   echo "The 'iw' tool is missing. Install it with: sudo apt-get install -y iw" >&2
   exit 1
+fi
+
+echo "[0/4] Ensuring Python deps (grpc) are installed..."
+# Ensure venv and deps (grpc) are present before touching Wi-Fi
+if [[ ! -d "${VENV_DIR}" ]]; then
+  python3 -m venv "${VENV_DIR}"
+fi
+# shellcheck disable=SC1090
+source "${VENV_DIR}/bin/activate"
+if ! python - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec("grpc") else 1)
+PY
+then
+  if [[ "${SKIP_PIP}" == "1" ]]; then
+    echo "Dependencies missing (grpc). SKIP_PIP=1 set; install requirements before rerunning." >&2
+    exit 1
+  fi
+  pip install --upgrade pip --retries 1 --timeout 10
+  if [[ -n "${PIP_FIND_LINKS}" ]]; then
+    pip install --no-index --find-links "${PIP_FIND_LINKS}" -r "${PROJECT_ROOT}/client/requirements.txt"
+  else
+    pip install --retries 1 --timeout 10 -r "${PROJECT_ROOT}/client/requirements.txt"
+  fi
 fi
 
 echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
@@ -184,8 +211,16 @@ import sys
 sys.exit(0 if importlib.util.find_spec("grpc") else 1)
 PY
   then
-    pip install --quiet --upgrade pip
-    pip install --quiet -r "${PROJECT_ROOT}/client/requirements.txt"
+    if [[ "${SKIP_PIP}" == "1" ]]; then
+      echo "Dependencies missing (grpc). SKIP_PIP=1 set; install requirements before rerunning." >&2
+      exit 1
+    fi
+    pip install --upgrade pip --retries 1 --timeout 10
+    if [[ -n "${PIP_FIND_LINKS}" ]]; then
+      pip install --no-index --find-links "${PIP_FIND_LINKS}" -r "${PROJECT_ROOT}/client/requirements.txt"
+    else
+      pip install --retries 1 --timeout 10 -r "${PROJECT_ROOT}/client/requirements.txt"
+    fi
   fi
 
   sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PYTHONPATH}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
