@@ -31,6 +31,10 @@ ONLINE_THRESHOLD_SECONDS = int(os.getenv("POD_ONLINE_THRESHOLD_SECONDS", "120"))
 PODSERVER_HEALTH_HOST = os.getenv("PODSERVER_HEALTH_HOST", "server")
 PODSERVER_HEALTH_PORT = int(os.getenv("PODSERVER_HEALTH_PORT", "50051"))
 PODSERVER_HEALTH_TIMEOUT = float(os.getenv("PODSERVER_HEALTH_TIMEOUT", "1.0"))
+THRESH_LATENCY_MS = float(os.getenv("ALERT_LATENCY_MS", "150"))
+THRESH_JITTER_MS = float(os.getenv("ALERT_JITTER_MS", "40"))
+THRESH_LOSS_PCT = float(os.getenv("ALERT_PACKET_LOSS_PCT", "5"))
+THRESH_BANDWIDTH_MBPS = float(os.getenv("ALERT_MIN_BANDWIDTH_MBPS", "5"))
 
 
 @app.route("/")
@@ -191,6 +195,7 @@ def fetch_pod_snapshot():
         age = None
         status = "offline"
         metrics = None
+        alerts = []
         if row:
             ts_sec = _normalize_timestamp(int(row["timestamp"]))
             last_seen_ms = int(ts_sec * 1000)
@@ -202,6 +207,15 @@ def fetch_pod_snapshot():
                 "packet_loss": row["packet_loss"],
                 "bandwidth": row["bandwidth"],
             }
+            # Threshold alerts
+            if metrics["latency"] > THRESH_LATENCY_MS:
+                alerts.append(f"Latency {metrics['latency']:.1f} ms > {THRESH_LATENCY_MS} ms")
+            if metrics["jitter"] > THRESH_JITTER_MS:
+                alerts.append(f"Jitter {metrics['jitter']:.1f} ms > {THRESH_JITTER_MS} ms")
+            if metrics["packet_loss"] > THRESH_LOSS_PCT:
+                alerts.append(f"Loss {metrics['packet_loss']:.1f}% > {THRESH_LOSS_PCT}%")
+            if metrics["bandwidth"] < THRESH_BANDWIDTH_MBPS:
+                alerts.append(f"Bandwidth {metrics['bandwidth']:.1f} Mbps < {THRESH_BANDWIDTH_MBPS} Mbps")
 
         # Special-case podServer: if no metrics yet, consider AP/server reachable via TCP
         if row is None and node_id == "podServer":
@@ -223,6 +237,7 @@ def fetch_pod_snapshot():
             "last_seen_ms": last_seen_ms,
             "age_seconds": age,
             "metrics": metrics,
+            "alerts": alerts,
         }
 
     snapshot = [build_entry(node_id, label) for node_id, label in POD_LABELS.items()]

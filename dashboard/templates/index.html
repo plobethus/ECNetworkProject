@@ -192,6 +192,7 @@ function renderPods(data) {
     podGrid.innerHTML = "";
     data.pods.forEach(pod => {
         const metrics = pod.metrics || {};
+        const alerts = pod.alerts || [];
         const card = document.createElement("div");
         card.className = "pod-card";
         card.innerHTML = `
@@ -209,6 +210,7 @@ function renderPods(data) {
                 <div><span class="meta-label">Packet loss</span><span class="meta-value">${fmtMetric(metrics.packet_loss, "%")}</span></div>
                 <div><span class="meta-label">Bandwidth</span><span class="meta-value">${fmtMetric(metrics.bandwidth, "Mbps")}</span></div>
             </div>
+            ${alerts.length ? `<div class="alerts">${alerts.map(a => `<div class="alert-item">⚠ ${a}</div>`).join("")}</div>` : ""}
         `;
         podGrid.appendChild(card);
     });
