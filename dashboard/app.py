@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import socket
 import subprocess
 import threading
 import time
@@ -27,6 +28,9 @@ POD_LABELS = {
     "podThree": "Pod Three",
 }
 ONLINE_THRESHOLD_SECONDS = int(os.getenv("POD_ONLINE_THRESHOLD_SECONDS", "120"))
+PODSERVER_HEALTH_HOST = os.getenv("PODSERVER_HEALTH_HOST", "server")
+PODSERVER_HEALTH_PORT = int(os.getenv("PODSERVER_HEALTH_PORT", "50051"))
+PODSERVER_HEALTH_TIMEOUT = float(os.getenv("PODSERVER_HEALTH_TIMEOUT", "1.0"))
 
 
 @app.route("/")
@@ -170,6 +174,13 @@ def fetch_pod_snapshot():
     now_sec = time.time()
     by_node = {row["node_id"]: row for row in rows}
 
+    def _check_tcp(host: str, port: int, timeout: float) -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
     def build_entry(node_id: str, label: str):
         row = by_node.get(node_id)
         last_seen_ms = None
@@ -187,6 +198,13 @@ def fetch_pod_snapshot():
                 "packet_loss": row["packet_loss"],
                 "bandwidth": row["bandwidth"],
             }
+
+        # Special-case podServer: if no metrics yet, consider AP/server reachable via TCP
+        if row is None and node_id == "podServer":
+            if _check_tcp(PODSERVER_HEALTH_HOST, PODSERVER_HEALTH_PORT, PODSERVER_HEALTH_TIMEOUT):
+                last_seen_ms = int(time.time() * 1000)
+                age = 0
+                status = "ap-only"
 
         return {
             "node_id": node_id,
