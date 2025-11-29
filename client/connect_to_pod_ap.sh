@@ -190,3 +190,4 @@ else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
 fi
+
