@@ -16,6 +16,7 @@ NODE_ID="${NODE_ID:-$(hostname)}"
 START_METRICS="${START_METRICS:-1}"
 SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
+VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -122,7 +123,24 @@ if [[ "${START_METRICS}" == "1" ]]; then
   PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   cd "${PROJECT_ROOT}"
   export PYTHONPATH="${PROJECT_ROOT}"
-  sudo -u "${SUDO_USER:-$(whoami)}" python3 -m client.scheduler
+
+  # Ensure venv and deps (grpc) are present
+  if [[ ! -d "${VENV_DIR}" ]]; then
+    python3 -m venv "${VENV_DIR}"
+  fi
+  # shellcheck disable=SC1090
+  source "${VENV_DIR}/bin/activate"
+  if ! python - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec("grpc") else 1)
+PY
+  then
+    pip install --quiet --upgrade pip
+    pip install --quiet -r "${PROJECT_ROOT}/client/requirements.txt"
+  fi
+
+  sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PROJECT_ROOT}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
 else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
