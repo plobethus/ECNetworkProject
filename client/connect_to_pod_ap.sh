@@ -122,7 +122,7 @@ echo "[4/4] Bringing up metrics sender..."
 if [[ "${START_METRICS}" == "1" ]]; then
   PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   cd "${PROJECT_ROOT}"
-  export PYTHONPATH="${PROJECT_ROOT}"
+  export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/client"
 
   # Ensure venv and deps (grpc) are present
   if [[ ! -d "${VENV_DIR}" ]]; then
@@ -140,7 +140,7 @@ PY
     pip install --quiet -r "${PROJECT_ROOT}/client/requirements.txt"
   fi
 
-  sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PROJECT_ROOT}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
+  sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PYTHONPATH}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
 else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
