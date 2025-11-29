@@ -23,6 +23,7 @@ INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 SKIP_PIP="${SKIP_PIP:-0}"
 PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
+IPERF_PORT="${IPERF_PORT:-5201}"
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -167,6 +168,7 @@ export SERVER_IP
 export NODE_ID
 export INTERVAL_SECONDS
 export PING_TARGET
+export IPERF_PORT
 python3 - <<'PY'
 import json
 import os
@@ -182,6 +184,7 @@ with config_path.open() as f:
 
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
+data["iperf_server_port"] = int(os.environ.get("IPERF_PORT", data.get("iperf_server_port", 5201)))
 data["node_id"] = os.environ["NODE_ID"]
 data["ping_target"] = os.environ["PING_TARGET"]
 interval = os.environ.get("INTERVAL_SECONDS")
