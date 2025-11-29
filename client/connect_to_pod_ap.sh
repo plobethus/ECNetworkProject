@@ -23,6 +23,7 @@ INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 SKIP_PIP="${SKIP_PIP:-0}"
 PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
+SKIP_APT="${SKIP_APT:-0}"
 IPERF_PORT="${IPERF_PORT:-5201}"
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,7 +43,16 @@ if ! command -v iw >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[0/4] Ensuring Python deps (grpc) are installed..."
+echo "[0/4] Ensuring system + Python deps (iperf3, grpc) are installed..."
+if ! command -v iperf3 >/dev/null 2>&1; then
+  if [[ "${SKIP_APT}" == "1" ]]; then
+    echo "iperf3 missing and SKIP_APT=1 set; install iperf3 manually (sudo apt-get install -y iperf3)." >&2
+    exit 1
+  fi
+  apt-get update -y
+  apt-get install -y iperf3
+fi
+
 if [[ ! -d "${VENV_DIR}" ]]; then
   python3 -m venv "${VENV_DIR}"
 fi
