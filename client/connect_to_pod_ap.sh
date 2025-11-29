@@ -75,7 +75,6 @@ wpa_cli -i "${WLAN_IFACE}" reconfigure >/dev/null 2>&1 \
   || wpa_supplicant -B -i "${WLAN_IFACE}" -c /etc/wpa_supplicant/wpa_supplicant.conf
 
 # Force wpa_supplicant to only use the target network
-# Force wpa_supplicant to only use the target network
 wpa_cli -i "${WLAN_IFACE}" remove_network all >/dev/null 2>&1 || true
 net_id="$(wpa_cli -i "${WLAN_IFACE}" add_network | tr -d '\r')"
 if [[ -z "${net_id}" ]]; then
