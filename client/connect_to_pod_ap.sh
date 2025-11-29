@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Connect a Raspberry Pi 3 (podOne/podTwo/podThree) to the podServer Wi-Fi AP
+# Connect a Raspberry Pi client (podOne/podTwo/podThree) to the podServer Wi-Fi AP
 # and start the Python metrics sender once connected.
 # Usage: sudo ./connect_to_pod_ap.sh
 # Tunables (env vars):
-#   SSID, PSK, WLAN_IFACE, SERVER_IP, CONFIG_PATH, NODE_ID, START_METRICS
+#   SSID, PSK, WLAN_IFACE, SERVER_IP, CONFIG_PATH, NODE_ID, START_METRICS,
+#   SCAN_RETRIES, SCAN_DELAY_SEC, VENV_DIR, INTERVAL_SECONDS, PING_TARGET,
+#   SKIP_PIP, PIP_FIND_LINKS
 
 set -euo pipefail
 
@@ -16,11 +18,13 @@ NODE_ID="${NODE_ID:-$(hostname)}"
 START_METRICS="${START_METRICS:-1}"
 SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
-
+VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 SKIP_PIP="${SKIP_PIP:-0}"
 PIP_FIND_LINKS="${PIP_FIND_LINKS:-}"
 
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -38,15 +42,13 @@ if ! command -v iw >/dev/null 2>&1; then
 fi
 
 echo "[0/4] Ensuring Python deps (grpc) are installed..."
-# Ensure venv and deps (grpc) are present before touching Wi-Fi
 if [[ ! -d "${VENV_DIR}" ]]; then
   python3 -m venv "${VENV_DIR}"
 fi
 # shellcheck disable=SC1090
 source "${VENV_DIR}/bin/activate"
 if ! python - <<'PY' >/dev/null 2>&1
-import importlib.util
-import sys
+import importlib.util, sys
 sys.exit(0 if importlib.util.find_spec("grpc") else 1)
 PY
 then
@@ -65,11 +67,17 @@ fi
 echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
-  if iw dev "${WLAN_IFACE}" scan | grep -q "SSID: ${SSID}"; then
+  scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
+  lc_ssid="$(echo "${SSID}" | tr '[:upper:]' '[:lower:]')"
+  seen_list="$(echo "${scan_out}" | sed -n 's/^[[:space:]]*SSID:[[:space:]]*//Ip' | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]*$//' )"
+  if echo "${seen_list}" | grep -Fxq "${lc_ssid}"; then
+    echo "  found ${SSID} on attempt ${attempt}"
     found=1
     break
   fi
-  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found, sleeping ${SCAN_DELAY_SEC}s..."
+  seen="$(echo "${scan_out}" | grep -i 'SSID:' | head -n 6 | tr '\n' ';' | sed 's/;/, /g')"
+  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found; nearby: ${seen}"
+  echo "  sleeping ${SCAN_DELAY_SEC}s..."
   sleep "${SCAN_DELAY_SEC}"
 done
 
@@ -132,14 +140,32 @@ for attempt in $(seq 1 6); do
   sleep 2
 done
 
+current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
+if [[ "${current_ip}" != 10.42.* ]]; then
+  echo "  warning: IP is ${current_ip:-none}, expected 10.42.x.x — renewing DHCP..."
+  if command -v dhclient >/dev/null 2>&1; then
+    dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
+    dhclient "${WLAN_IFACE}" 2>/dev/null || true
+  elif command -v dhcpcd >/dev/null 2>&1; then
+    dhcpcd -k "${WLAN_IFACE}" 2>/dev/null || true
+    dhcpcd -n "${WLAN_IFACE}"
+  fi
+  sleep 2
+  current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
+fi
+
+if [[ "${current_ip}" != 10.42.* ]]; then
+  echo "ERROR: still not on podNet; wlan0 IP is ${current_ip:-none}. Check AP and try again." >&2
+  exit 1
+fi
+echo "  acquired IP ${current_ip}"
+
 echo "[3/4] Updating client/config.json with server IP and node ID..."
 export CONFIG_PATH
 export SERVER_IP
 export NODE_ID
 export INTERVAL_SECONDS
-
 export PING_TARGET
-
 python3 - <<'PY'
 import json
 import os
@@ -156,9 +182,7 @@ with config_path.open() as f:
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
 data["node_id"] = os.environ["NODE_ID"]
-
 data["ping_target"] = os.environ["PING_TARGET"]
-
 interval = os.environ.get("INTERVAL_SECONDS")
 if interval:
     try:
@@ -172,38 +196,15 @@ PY
 
 echo "[4/4] Bringing up metrics sender..."
 if [[ "${START_METRICS}" == "1" ]]; then
-  PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   cd "${PROJECT_ROOT}"
   export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/client"
 
-  # Ensure venv and deps (grpc) are present
-  if [[ ! -d "${VENV_DIR}" ]]; then
-    python3 -m venv "${VENV_DIR}"
-  fi
+  # Reuse the same venv prepared earlier; dependencies already verified
   # shellcheck disable=SC1090
   source "${VENV_DIR}/bin/activate"
-  if ! python - <<'PY' >/dev/null 2>&1
-import importlib.util
-import sys
-sys.exit(0 if importlib.util.find_spec("grpc") else 1)
-PY
-  then
-    if [[ "${SKIP_PIP}" == "1" ]]; then
-      echo "Dependencies missing (grpc). SKIP_PIP=1 set; install requirements before rerunning." >&2
-      exit 1
-    fi
-    pip install --upgrade pip --retries 1 --timeout 10
-    if [[ -n "${PIP_FIND_LINKS}" ]]; then
-      pip install --no-index --find-links "${PIP_FIND_LINKS}" -r "${PROJECT_ROOT}/client/requirements.txt"
-    else
-      pip install --retries 1 --timeout 10 -r "${PROJECT_ROOT}/client/requirements.txt"
-    fi
-
-  fi
 
   sudo -u "${SUDO_USER:-$(whoami)}" env PYTHONPATH="${PYTHONPATH}" VIRTUAL_ENV="${VENV_DIR}" PATH="${VENV_DIR}/bin:${PATH}" python -m client.scheduler
 else
   echo "START_METRICS=0, skipping automatic launch."
-  echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
+  echo "Manual run: (cd ${PROJECT_ROOT} && PYTHONPATH=${PROJECT_ROOT}:${PROJECT_ROOT}/client python3 -m client.scheduler)"
 fi
-
