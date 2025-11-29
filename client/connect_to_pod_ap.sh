@@ -208,3 +208,4 @@ else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd ${PROJECT_ROOT} && PYTHONPATH=${PROJECT_ROOT}:${PROJECT_ROOT}/client python3 -m client.scheduler)"
 fi
+
