@@ -42,6 +42,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+echo "Cleaning old SVG charts..."
+rm -f "${ROOT}/dashboard/static/"*.svg 2>/dev/null || true
+
+# If running dashboard on host, point chartgen notify to host
+if [[ "${HOST_DASHBOARD}" -eq 1 && -z "${CHARTGEN_NOTIFY_URL:-}" ]]; then
+  export CHARTGEN_NOTIFY_URL="http://host.docker.internal:8080/event/chart-updated"
+fi
+
 echo "Starting services: ${STACK_SERVICES}"
 ${COMPOSE_BIN} -f docker-compose.yml up -d "${BUILD_FLAG[@]}" ${STACK_SERVICES}
 

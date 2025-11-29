@@ -59,6 +59,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./dashboard/static:/output
+    environment:
+      - CHARTGEN_NOTIFY_URL=${CHARTGEN_NOTIFY_URL:-http://dashboard:8080/event/chart-updated}
     restart: unless-stopped
 
   test-agent:

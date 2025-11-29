@@ -116,11 +116,6 @@ void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricTyp
         "<rect x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" fill=\"white\" />\n",
         width, height);
 
-    // Title
-    fprintf(f,
-        "<text x=\"%d\" y=\"%d\" font-size=\"18\" font-weight=\"700\" fill=\"#1a1a1a\">%s</text>\n",
-        left_pad, top_pad + 16, title);
-
     // ---------------- Y-axis grid ----------------
     int grid_lines = 6;
     for (int i = 0; i <= grid_lines; i++) {
