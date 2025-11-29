@@ -16,8 +16,6 @@ NODE_ID="${NODE_ID:-$(hostname)}"
 START_METRICS="${START_METRICS:-1}"
 SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
-VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
-INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 
 PING_TARGET="${PING_TARGET:-${SERVER_IP}}"
 SKIP_PIP="${SKIP_PIP:-0}"
@@ -67,18 +65,11 @@ fi
 echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
-  scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
-  # Extract SSIDs, strip whitespace, compare lowercased
-  lc_ssid="$(echo "${SSID}" | tr '[:upper:]' '[:lower:]')"
-  seen_list="$(echo "${scan_out}" | sed -n 's/^[[:space:]]*SSID:[[:space:]]*//Ip' | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]*$//' )"
-  if echo "${seen_list}" | grep -Fxq "${lc_ssid}"; then
-    echo "  found ${SSID} on attempt ${attempt}"
+  if iw dev "${WLAN_IFACE}" scan | grep -q "SSID: ${SSID}"; then
     found=1
     break
   fi
-  seen="$(echo "${scan_out}" | grep -i 'SSID:' | head -n 6 | tr '\n' ';' | sed 's/;/, /g')"
-  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found; nearby: ${seen}"
-  echo "  sleeping ${SCAN_DELAY_SEC}s..."
+  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found, sleeping ${SCAN_DELAY_SEC}s..."
   sleep "${SCAN_DELAY_SEC}"
 done
 
@@ -140,26 +131,6 @@ for attempt in $(seq 1 6); do
   echo "  waiting... (${attempt}/6)"
   sleep 2
 done
-
-current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
-if [[ "${current_ip}" != 10.42.* ]]; then
-  echo "  warning: IP is ${current_ip:-none}, expected 10.42.x.x — renewing DHCP..."
-  if command -v dhclient >/dev/null 2>&1; then
-    dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
-    dhclient "${WLAN_IFACE}" 2>/dev/null || true
-  elif command -v dhcpcd >/dev/null 2>&1; then
-    dhcpcd -k "${WLAN_IFACE}" 2>/dev/null || true
-    dhcpcd -n "${WLAN_IFACE}"
-  fi
-  sleep 2
-  current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
-fi
-
-if [[ "${current_ip}" != 10.42.* ]]; then
-  echo "ERROR: still not on podNet; wlan0 IP is ${current_ip:-none}. Check AP and try again." >&2
-  exit 1
-fi
-echo "  acquired IP ${current_ip}"
 
 echo "[3/4] Updating client/config.json with server IP and node ID..."
 export CONFIG_PATH
