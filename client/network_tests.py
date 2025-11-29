@@ -42,10 +42,10 @@ def run_ping(target: str = "8.8.8.8", count: int = 2, timeout: int = 2) -> Dict[
         }
 
 
-def run_iperf3(server_host: str, duration: int = 1) -> float:
+def run_iperf3(server_host: str, duration: int = 1, port: int = 5201) -> float:
     try:
         result = subprocess.run(
-            ["iperf3", "-c", server_host, "-t", str(duration), "-J"],
+            ["iperf3", "-c", server_host, "-p", str(port), "-t", str(duration), "-J"],
             capture_output=True,
             text=True,
             check=True,
@@ -55,13 +55,20 @@ def run_iperf3(server_host: str, duration: int = 1) -> float:
 
         bps = data["end"]["sum_received"]["bits_per_second"]
         return bps / 1_000_000.0
-    except Exception:
+    except FileNotFoundError:
+        print("[iperf3] iperf3 binary not found; install iperf3 on this pod.")
+        return 0.0
+    except subprocess.CalledProcessError as e:
+        print(f"[iperf3] error rc={e.returncode} stderr={e.stderr.strip() if e.stderr else ''}")
+        return 0.0
+    except Exception as e:
+        print(f"[iperf3] unexpected error: {e}")
         return 0.0
 
 
-def collect_metrics(ping_target: str, iperf_server_host: str) -> Dict[str, Any]:
+def collect_metrics(ping_target: str, iperf_server_host: str, iperf_port: int = 5201) -> Dict[str, Any]:
     ping_results = run_ping(ping_target)
-    bandwidth_mbps = run_iperf3(iperf_server_host)
+    bandwidth_mbps = run_iperf3(iperf_server_host, port=iperf_port)
 
     return {
         "latency": ping_results["latency"],

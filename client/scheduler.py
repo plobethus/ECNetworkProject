@@ -12,6 +12,7 @@ def main():
     node_id = config.get("node_id") or socket.gethostname()
     ping_target = config["ping_target"]
     iperf_server_host = config["iperf_server_host"]
+    iperf_server_port = int(config.get("iperf_server_port", 5201))
     interval = int(config["interval_seconds"])
 
     grpc_client = MetricsGRPCClient(config)
@@ -26,7 +27,7 @@ def main():
         timestamp = int(loop_start)
 
         # Run tests
-        metrics = collect_metrics(ping_target, iperf_server_host)
+        metrics = collect_metrics(ping_target, iperf_server_host, iperf_port=iperf_server_port)
 
         print(f"[{timestamp}] Metrics collected:")
         print(f"  Latency:      {metrics['latency']:.2f} ms")
