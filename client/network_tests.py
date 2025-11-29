@@ -11,7 +11,7 @@ def run_ping(target: str = "8.8.8.8", count: int = 10) -> Dict[str, float]:
             ["ping", "-c", str(count), target],
             capture_output=True,
             text=True,
-            check=True
+            check=False  # we still want output even if some loss occurs
         )
         output = result.stdout
 
@@ -34,7 +34,7 @@ def run_ping(target: str = "8.8.8.8", count: int = 10) -> Dict[str, float]:
             "packet_loss": packet_loss
         }
 
-    except:
+    except Exception:
         return {
             "latency": 0.0,
             "jitter": 0.0,
