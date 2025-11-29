@@ -14,6 +14,8 @@ SERVER_IP="${SERVER_IP:-10.42.0.1}"
 CONFIG_PATH="${CONFIG_PATH:-$(cd "$(dirname "$0")" && pwd)/config.json}"
 NODE_ID="${NODE_ID:-$(hostname)}"
 START_METRICS="${START_METRICS:-1}"
+SCAN_RETRIES="${SCAN_RETRIES:-6}"
+SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -30,9 +32,19 @@ if ! command -v iw >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE}..."
-if ! iw dev "${WLAN_IFACE}" scan | grep -q "SSID: ${SSID}"; then
-  echo "SSID ${SSID} not found. Is the AP up and nearby?" >&2
+echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
+found=0
+for attempt in $(seq 1 "${SCAN_RETRIES}"); do
+  if iw dev "${WLAN_IFACE}" scan | grep -q "SSID: ${SSID}"; then
+    found=1
+    break
+  fi
+  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found, sleeping ${SCAN_DELAY_SEC}s..."
+  sleep "${SCAN_DELAY_SEC}"
+done
+
+if [[ "${found}" -ne 1 ]]; then
+  echo "SSID ${SSID} not found after ${SCAN_RETRIES} attempts. Is the AP up and nearby?" >&2
   exit 1
 fi
 
@@ -59,6 +71,16 @@ elif command -v dhcpcd >/dev/null 2>&1; then
 else
   echo "Neither dhclient nor dhcpcd found; renew your IP manually." >&2
 fi
+
+echo "[2b] Waiting for association on ${WLAN_IFACE}..."
+for attempt in $(seq 1 6); do
+  if iw dev "${WLAN_IFACE}" link | grep -q "Connected to"; then
+    echo "  connected."
+    break
+  fi
+  echo "  waiting... (${attempt}/6)"
+  sleep 2
+done
 
 echo "[3/4] Updating client/config.json with server IP and node ID..."
 python3 - <<'PY'
