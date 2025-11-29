@@ -36,7 +36,10 @@ echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES},
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
   scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
-  if echo "${scan_out}" | grep -qi "SSID: ${SSID}"; then
+  # Case-insensitive exact match after "SSID: "
+  lc_scan="$(echo "${scan_out}" | tr '[:upper:]' '[:lower:]')"
+  lc_ssid="$(echo "${SSID}" | tr '[:upper:]' '[:lower:]')"
+  if echo "${lc_scan}" | grep -q "ssid: ${lc_ssid}"; then
     echo "  found ${SSID} on attempt ${attempt}"
     found=1
     break
