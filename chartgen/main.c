@@ -5,37 +5,104 @@
 #include <time.h>
 #include <libpq-fe.h>
 
+#define DEFAULT_NOTIFY_URL "http://dashboard:8080/event/chart-updated"
+
 #define MAX_POINTS          5000
+#define MAX_NODES           16
 #define PX_PER_POINT        5       // fixed horizontal distance per sample
 #define MIN_LABEL_PIXEL_GAP 80      // minimum pixel gap between timestamp labels
 
-// ======================================================
-// Save SVG (fixed pixel spacing + locked timestamps)
-// ======================================================
-void save_svg(const char *filename, double *values, long long *timestamps, int rows) {
-    if (rows <= 1) return;
+typedef struct {
+    char id[64];
+    long long timestamps[MAX_POINTS];
+    double latency[MAX_POINTS];
+    double jitter[MAX_POINTS];
+    double packet_loss[MAX_POINTS];
+    double bandwidth[MAX_POINTS];
+    int count;
+} NodeSeries;
 
-    // ---------------- Min/max Y ----------------
-    double minVal = values[0];
-    double maxVal = values[0];
-    for (int i = 1; i < rows; i++) {
-        if (values[i] < minVal) minVal = values[i];
-        if (values[i] > maxVal) maxVal = values[i];
+typedef enum {
+    METRIC_LATENCY = 0,
+    METRIC_JITTER,
+    METRIC_PACKET_LOSS,
+    METRIC_BANDWIDTH
+} MetricType;
+
+static const char *COLOR_PALETTE[] = {
+    "#007bff", "#ff4d4f", "#5cd65c", "#f7c948",
+    "#9b59b6", "#00c4b4", "#ff8c42", "#e84393"
+};
+static const int COLOR_COUNT = sizeof(COLOR_PALETTE) / sizeof(COLOR_PALETTE[0]);
+
+// ======================================================
+// Helpers and SVG rendering (multi-node, per metric)
+// ======================================================
+int find_or_create_node(NodeSeries *nodes, int *node_count, const char *id) {
+    for (int i = 0; i < *node_count; i++) {
+        if (strncmp(nodes[i].id, id, sizeof(nodes[i].id)) == 0) {
+            return i;
+        }
     }
+    if (*node_count >= MAX_NODES) {
+        return -1;
+    }
+    snprintf(nodes[*node_count].id, sizeof(nodes[*node_count].id), "%s", id);
+    nodes[*node_count].count = 0;
+    (*node_count)++;
+    return *node_count - 1;
+}
+
+double get_metric_value(const NodeSeries *node, int idx, MetricType metric) {
+    switch (metric) {
+        case METRIC_LATENCY:     return node->latency[idx];
+        case METRIC_JITTER:      return node->jitter[idx];
+        case METRIC_PACKET_LOSS: return node->packet_loss[idx];
+        case METRIC_BANDWIDTH:   return node->bandwidth[idx];
+        default:                 return 0.0;
+    }
+}
+
+void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricType metric, const char *title, const char *unit) {
+    if (node_count == 0) return;
+
+    int max_points = 0;
+    NodeSeries *label_node = NULL;
+    double minVal = 0, maxVal = 0;
+    int initialized = 0;
+
+    for (int n = 0; n < node_count; n++) {
+        int rows = nodes[n].count;
+        if (rows > max_points) {
+            max_points = rows;
+            label_node = &nodes[n];
+        }
+        for (int i = 0; i < rows; i++) {
+            double v = get_metric_value(&nodes[n], i, metric);
+            if (!initialized) {
+                minVal = maxVal = v;
+                initialized = 1;
+            } else {
+                if (v < minVal) minVal = v;
+                if (v > maxVal) maxVal = v;
+            }
+        }
+    }
+
+    if (max_points <= 1 || !initialized) return;
+
     double range = maxVal - minVal;
     if (range == 0) range = 1.0;
 
-    // ---------------- Layout ----------------
-    int left_pad   = 60;
+    int left_pad   = 80;
     int right_pad  = 20;
     int top_pad    = 10;
-    int bottom_pad = 110;    
+    int bottom_pad = 130;
 
-    int plot_width = (rows - 1) * PX_PER_POINT;
+    int plot_width = (max_points - 1) * PX_PER_POINT;
     int width      = left_pad + plot_width + right_pad;
-    int height     = 480;    
+    int height     = 520;
 
-    // ---------------- Open file ----------------
     char path[256];
     snprintf(path, sizeof(path), "/output/%s", filename);
     FILE *f = fopen(path, "w");
@@ -49,6 +116,11 @@ void save_svg(const char *filename, double *values, long long *timestamps, int r
         "<rect x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" fill=\"white\" />\n",
         width, height);
 
+    // Title
+    fprintf(f,
+        "<text x=\"%d\" y=\"%d\" font-size=\"18\" font-weight=\"700\" fill=\"#1a1a1a\">%s</text>\n",
+        left_pad, top_pad + 16, title);
+
     // ---------------- Y-axis grid ----------------
     int grid_lines = 6;
     for (int i = 0; i <= grid_lines; i++) {
@@ -61,66 +133,81 @@ void save_svg(const char *filename, double *values, long long *timestamps, int r
             left_pad, y, width - right_pad, y);
 
         fprintf(f,
-            "<text x=\"5\" y=\"%.1f\" font-size=\"12\" fill=\"#333\">%.2f</text>\n",
-            y + 4, val);
+            "<text x=\"5\" y=\"%.1f\" font-size=\"12\" fill=\"#333\">%.2f %s</text>\n",
+            y + 4, val, unit);
     }
 
-    // ---------------- Data polyline ----------------
-    fprintf(f, "<polyline fill=\"none\" stroke=\"blue\" stroke-width=\"2\" points=\"");
-
-    for (int i = 0; i < rows; i++) {
-        double x = left_pad + i * PX_PER_POINT;
-        double norm = (values[i] - minVal) / range;
-        double y = top_pad + (1.0 - norm) * (height - top_pad - bottom_pad);
-        fprintf(f, "%.1f,%.1f ", x, y);
-    }
-
-    fprintf(f, "\" />\n");
-
-    // ======================================================
-    // TIMESTAMP LABELS — locked to datapoints
-    // ======================================================
-    int label_step = MIN_LABEL_PIXEL_GAP / PX_PER_POINT;
-    if (label_step < 1) label_step = 1;
-
-    for (int i = 0; i < rows; i += label_step) {
-
-        double x = left_pad + i * PX_PER_POINT;
-
-        long long ts_raw = timestamps[i];
-        time_t seconds;
-        long ms = 0;
-
-        if (ts_raw > 1000000000000LL) { // epoch ms
-            seconds = (time_t)(ts_raw / 1000);
-            ms = (long)(ts_raw % 1000);
-        } else {
-            seconds = (time_t)ts_raw;
-            ms = 0;
-        }
-
-        struct tm *tm_info = localtime(&seconds);
-        if (!tm_info) continue;
-
-        char base[32];
-        strftime(base, sizeof(base), "%H:%M:%S", tm_info);
-
-        char label[64];
-        snprintf(label, sizeof(label), "%s.%03ld", base, ms);
-
-        // FIX: move label up so rotation never gets cropped
-        int text_y = height - bottom_pad + 35;
-
+    // ---------------- Legend ----------------
+    int legend_x = left_pad;
+    int legend_y = top_pad + 30;
+    for (int n = 0; n < node_count; n++) {
+        const char *color = COLOR_PALETTE[n % COLOR_COUNT];
         fprintf(f,
-            "<text x=\"%.1f\" y=\"%d\" font-size=\"12\" fill=\"#444\" "
-            "transform=\"rotate(55 %.1f,%d)\">%s</text>\n",
-            x, text_y, x, text_y, label);
+            "<rect x=\"%d\" y=\"%d\" width=\"14\" height=\"14\" fill=\"%s\" stroke=\"none\" />\n",
+            legend_x, legend_y, color);
+        fprintf(f,
+            "<text x=\"%d\" y=\"%d\" font-size=\"13\" fill=\"#222\">%s</text>\n",
+            legend_x + 20, legend_y + 12, nodes[n].id);
+        legend_y += 18;
+    }
+
+    // ---------------- Data polylines per node ----------------
+    for (int n = 0; n < node_count; n++) {
+        const char *color = COLOR_PALETTE[n % COLOR_COUNT];
+        fprintf(f, "<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"2\" points=\"", color);
+        for (int i = 0; i < nodes[n].count; i++) {
+            double x = left_pad + i * PX_PER_POINT;
+            double norm = (get_metric_value(&nodes[n], i, metric) - minVal) / range;
+            double y = top_pad + (1.0 - norm) * (height - top_pad - bottom_pad);
+            fprintf(f, "%.1f,%.1f ", x, y);
+        }
+        fprintf(f, "\" />\n");
+    }
+
+    // ======================================================
+    // TIMESTAMP LABELS — use longest series as reference
+    // ======================================================
+    if (label_node) {
+        int label_step = MIN_LABEL_PIXEL_GAP / PX_PER_POINT;
+        if (label_step < 1) label_step = 1;
+
+        for (int i = 0; i < label_node->count; i += label_step) {
+            double x = left_pad + i * PX_PER_POINT;
+
+            long long ts_raw = label_node->timestamps[i];
+            time_t seconds;
+            long ms = 0;
+
+            if (ts_raw > 1000000000000LL) { // epoch ms
+                seconds = (time_t)(ts_raw / 1000);
+                ms = (long)(ts_raw % 1000);
+            } else {
+                seconds = (time_t)ts_raw;
+                ms = 0;
+            }
+
+            struct tm *tm_info = localtime(&seconds);
+            if (!tm_info) continue;
+
+            char base[32];
+            strftime(base, sizeof(base), "%H:%M:%S", tm_info);
+
+            char label[64];
+            snprintf(label, sizeof(label), "%s.%03ld", base, ms);
+
+            int text_y = height - bottom_pad + 35;
+
+            fprintf(f,
+                "<text x=\"%.1f\" y=\"%d\" font-size=\"12\" fill=\"#444\" "
+                "transform=\"rotate(55 %.1f,%d)\">%s</text>\n",
+                x, text_y, x, text_y, label);
+        }
     }
 
     fprintf(f, "</svg>\n");
     fclose(f);
 
-    printf("Generated %s (%d points, width=%d)\n", filename, rows, width);
+    printf("Generated %s (nodes=%d, max_points=%d, width=%d)\n", filename, node_count, max_points, width);
 }
 
 // ======================================================
@@ -136,7 +223,7 @@ void generate_charts_once(void) {
     }
 
     PGresult *res = PQexec(conn,
-        "SELECT timestamp, latency, jitter, packet_loss, bandwidth "
+        "SELECT node_id, timestamp, latency, jitter, packet_loss, bandwidth "
         "FROM metrics ORDER BY timestamp ASC LIMIT 5000");
 
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
@@ -147,40 +234,53 @@ void generate_charts_once(void) {
     }
 
     int rows = PQntuples(res);
-    if (rows > MAX_POINTS) rows = MAX_POINTS;
 
-    long long timestamps[MAX_POINTS];
-    double latency[MAX_POINTS];
-    double jitter[MAX_POINTS];
-    double packet_loss[MAX_POINTS];
-    double bandwidth[MAX_POINTS];
+    NodeSeries nodes[MAX_NODES];
+    int node_count = 0;
 
-    for (int i = 0; i < rows; i++) {
-        timestamps[i]   = atoll(PQgetvalue(res, i, 0));
-        latency[i]      = atof(PQgetvalue(res, i, 1));
-        jitter[i]       = atof(PQgetvalue(res, i, 2));
-        packet_loss[i]  = atof(PQgetvalue(res, i, 3));
-        bandwidth[i]    = atof(PQgetvalue(res, i, 4));
+    for (int i = 0; i < rows && i < MAX_POINTS; i++) {
+        const char *node_id = PQgetvalue(res, i, 0);
+        int idx = find_or_create_node(nodes, &node_count, node_id);
+        if (idx < 0) {
+            continue;
+        }
+        NodeSeries *node = &nodes[idx];
+        if (node->count >= MAX_POINTS) continue;
+
+        int pos = node->count;
+        node->timestamps[pos]   = atoll(PQgetvalue(res, i, 1));
+        node->latency[pos]      = atof(PQgetvalue(res, i, 2));
+        node->jitter[pos]       = atof(PQgetvalue(res, i, 3));
+        node->packet_loss[pos]  = atof(PQgetvalue(res, i, 4));
+        node->bandwidth[pos]    = atof(PQgetvalue(res, i, 5));
+        node->count++;
     }
 
     PQclear(res);
     PQfinish(conn);
 
-    save_svg("latency.svg",      latency,     timestamps, rows);
-    save_svg("jitter.svg",       jitter,      timestamps, rows);
-    save_svg("packet_loss.svg",  packet_loss, timestamps, rows);
-    save_svg("bandwidth.svg",    bandwidth,   timestamps, rows);
+    save_svg("latency.svg",      nodes, node_count, METRIC_LATENCY, "Latency", "ms");
+    save_svg("jitter.svg",       nodes, node_count, METRIC_JITTER, "Jitter", "ms");
+    save_svg("packet_loss.svg",  nodes, node_count, METRIC_PACKET_LOSS, "Packet Loss", "%%");
+    save_svg("bandwidth.svg",    nodes, node_count, METRIC_BANDWIDTH, "Bandwidth", "Mbps");
 }
 
 // ======================================================
 // Main render loop
 // ======================================================
 int main(void) {
+    const char *notify_url = getenv("CHARTGEN_NOTIFY_URL");
+    if (!notify_url || strlen(notify_url) == 0) {
+        notify_url = DEFAULT_NOTIFY_URL;
+    }
+
     while (1) {
         generate_charts_once();
 
         // Notify dashboard (SSE)
-        int rc = system("curl -sS http://dashboard:8080/event/chart-updated >/dev/null 2>&1");
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd), "curl -sS %s >/dev/null 2>&1", notify_url);
+        int rc = system(cmd);
         if (rc != 0) {
             fprintf(stderr, "Warning: SSE notify fail rc=%d\n", rc);
         }

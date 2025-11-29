@@ -22,7 +22,8 @@ def main():
     print(f"Send interval: {interval} seconds\n")
 
     while True:
-        timestamp = int(time.time())
+        loop_start = time.time()
+        timestamp = int(loop_start)
 
         # Run tests
         metrics = collect_metrics(ping_target, iperf_server_host)
@@ -48,7 +49,9 @@ def main():
         else:
             print("  ❌ Submission failed\n")
 
-        time.sleep(interval)
+        elapsed = time.time() - loop_start
+        sleep_for = max(0, interval - elapsed)
+        time.sleep(sleep_for)
 
 
 if __name__ == "__main__":
