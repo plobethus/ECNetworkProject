@@ -44,6 +44,11 @@ services:
       - "8080:8080"
     volumes:
       - ./dashboard/static:/app/static
+      - ./server:/host/server:ro
+    environment:
+      AP_SETUP_SCRIPT: /host/server/setup_wifi_ap.sh
+      AP_TEARDOWN_SCRIPT: /host/server/teardown_wifi_ap.sh
+      AP_USE_SUDO: "0"
 
   chartgen:
     build:

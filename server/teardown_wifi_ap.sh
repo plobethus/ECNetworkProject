@@ -21,8 +21,12 @@ systemctl stop hostapd || true
 systemctl stop dnsmasq || true
 
 echo "[2/4] Removing static IP override from /etc/dhcpcd.conf..."
-sed -i '/^# PODNET AP BEGIN/,/^# PODNET AP END/d' /etc/dhcpcd.conf
-systemctl restart dhcpcd || true
+if command -v dhcpcd >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^dhcpcd.service'; then
+  sed -i '/^# PODNET AP BEGIN/,/^# PODNET AP END/d' /etc/dhcpcd.conf
+  systemctl restart dhcpcd || true
+else
+  ip addr flush dev "${AP_INTERFACE}" || true
+fi
 
 echo "[3/4] Removing iptables NAT/forward rules..."
 iptables -t nat -D POSTROUTING -o "${WAN_INTERFACE}" -j MASQUERADE 2>/dev/null || true

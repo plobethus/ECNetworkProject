@@ -37,15 +37,23 @@ apt-get install -y --no-install-recommends hostapd dnsmasq iptables-persistent r
 rfkill unblock wlan || true
 
 echo "[2/6] Setting static IP on ${AP_INTERFACE} (${AP_GATEWAY})..."
-sed -i '/^# PODNET AP BEGIN/,/^# PODNET AP END/d' /etc/dhcpcd.conf
-cat <<EOF >> /etc/dhcpcd.conf
+if command -v dhcpcd >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^dhcpcd.service'; then
+  sed -i '/^# PODNET AP BEGIN/,/^# PODNET AP END/d' /etc/dhcpcd.conf
+  cat <<EOF >> /etc/dhcpcd.conf
 # PODNET AP BEGIN
 interface ${AP_INTERFACE}
 static ip_address=${AP_GATEWAY}/24
 nohook wpa_supplicant
 # PODNET AP END
 EOF
-systemctl restart dhcpcd
+  systemctl restart dhcpcd
+else
+  # Fallback for systems without dhcpcd: assign IP directly (non-persistent)
+  ip link set "${AP_INTERFACE}" up
+  ip addr flush dev "${AP_INTERFACE}" || true
+  ip addr add "${AP_GATEWAY}/24" dev "${AP_INTERFACE}"
+  echo "dhcpcd not present; assigned ${AP_GATEWAY}/24 to ${AP_INTERFACE} (non-persistent)" >&2
+fi
 
 echo "[3/6] Configuring hostapd..."
 cat <<EOF > /etc/hostapd/hostapd.conf
