@@ -3,6 +3,6 @@
   "grpc_server_port": 50051,
   "iperf_server_host": "10.42.0.1",
   "ping_target": "1.1.1.1",
-  "interval_seconds": 60,
+  "interval_seconds": 1,
   "node_id": "podOne"
 }

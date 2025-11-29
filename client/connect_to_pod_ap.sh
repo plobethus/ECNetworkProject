@@ -17,6 +17,7 @@ START_METRICS="${START_METRICS:-1}"
 SCAN_RETRIES="${SCAN_RETRIES:-6}"
 SCAN_DELAY_SEC="${SCAN_DELAY_SEC:-3}"
 VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")/.." && pwd)/client/.venv}"
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-}"
 
 echo "=== Connect to podServer AP ==="
 echo "SSID: ${SSID}"
@@ -134,6 +135,7 @@ echo "[3/4] Updating client/config.json with server IP and node ID..."
 export CONFIG_PATH
 export SERVER_IP
 export NODE_ID
+export INTERVAL_SECONDS
 python3 - <<'PY'
 import json
 import os
@@ -150,6 +152,12 @@ with config_path.open() as f:
 data["grpc_server_host"] = os.environ["SERVER_IP"]
 data["iperf_server_host"] = os.environ["SERVER_IP"]
 data["node_id"] = os.environ["NODE_ID"]
+interval = os.environ.get("INTERVAL_SECONDS")
+if interval:
+    try:
+        data["interval_seconds"] = int(interval)
+    except ValueError:
+        print(f"Skipping interval_seconds override (invalid int: {interval})")
 
 config_path.write_text(json.dumps(data, indent=2))
 print(f"Wrote updated client config to {config_path}")
