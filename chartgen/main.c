@@ -64,20 +64,30 @@ double get_metric_value(const NodeSeries *node, int idx, MetricType metric) {
     }
 }
 
-void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricType metric, const char *title, const char *unit) {
-    if (node_count == 0) return;
+static int cmp_ll(const void *a, const void *b) {
+    long long x = *(const long long *)a;
+    long long y = *(const long long *)b;
+    if (x < y) return -1;
+    if (x > y) return 1;
+    return 0;
+}
+
+int find_ts_index(const long long *timeline, int timeline_count, long long ts) {
+    for (int i = 0; i < timeline_count; i++) {
+        if (timeline[i] == ts) return i;
+    }
+    return -1;
+}
+
+void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricType metric, const char *title, const char *unit, long long *timeline, int timeline_count) {
+    if (node_count == 0 || timeline_count < 2) return;
 
     int max_points = 0;
-    NodeSeries *label_node = NULL;
     double minVal = 0, maxVal = 0;
     int initialized = 0;
 
     for (int n = 0; n < node_count; n++) {
         int rows = nodes[n].count;
-        if (rows > max_points) {
-            max_points = rows;
-            label_node = &nodes[n];
-        }
         for (int i = 0; i < rows; i++) {
             double v = get_metric_value(&nodes[n], i, metric);
             if (!initialized) {
@@ -90,7 +100,8 @@ void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricTyp
         }
     }
 
-    if (max_points <= 1 || !initialized) return;
+    if (!initialized) return;
+    max_points = timeline_count;
 
     double range = maxVal - minVal;
     if (range == 0) range = 1.0;
@@ -152,7 +163,9 @@ void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricTyp
         const char *color = COLOR_PALETTE[n % COLOR_COUNT];
         fprintf(f, "<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"2\" points=\"", color);
         for (int i = 0; i < nodes[n].count; i++) {
-            double x = left_pad + i * PX_PER_POINT;
+            int idx = find_ts_index(timeline, timeline_count, nodes[n].timestamps[i]);
+            if (idx < 0) continue;
+            double x = left_pad + idx * PX_PER_POINT;
             double norm = (get_metric_value(&nodes[n], i, metric) - minVal) / range;
             double y = top_pad + (1.0 - norm) * (height - top_pad - bottom_pad);
             fprintf(f, "%.1f,%.1f ", x, y);
@@ -163,41 +176,38 @@ void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricTyp
     // ======================================================
     // TIMESTAMP LABELS — use longest series as reference
     // ======================================================
-    if (label_node) {
-        int label_step = MIN_LABEL_PIXEL_GAP / PX_PER_POINT;
-        if (label_step < 1) label_step = 1;
+    int label_step = MIN_LABEL_PIXEL_GAP / PX_PER_POINT;
+    if (label_step < 1) label_step = 1;
+    for (int i = 0; i < timeline_count; i += label_step) {
+        double x = left_pad + i * PX_PER_POINT;
 
-        for (int i = 0; i < label_node->count; i += label_step) {
-            double x = left_pad + i * PX_PER_POINT;
+        long long ts_raw = timeline[i];
+        time_t seconds;
+        long ms = 0;
 
-            long long ts_raw = label_node->timestamps[i];
-            time_t seconds;
-            long ms = 0;
-
-            if (ts_raw > 1000000000000LL) { // epoch ms
-                seconds = (time_t)(ts_raw / 1000);
-                ms = (long)(ts_raw % 1000);
-            } else {
-                seconds = (time_t)ts_raw;
-                ms = 0;
-            }
-
-            struct tm *tm_info = localtime(&seconds);
-            if (!tm_info) continue;
-
-            char base[32];
-            strftime(base, sizeof(base), "%H:%M:%S", tm_info);
-
-            char label[64];
-            snprintf(label, sizeof(label), "%s.%03ld", base, ms);
-
-            int text_y = height - bottom_pad + 35;
-
-            fprintf(f,
-                "<text x=\"%.1f\" y=\"%d\" font-size=\"12\" fill=\"#444\" "
-                "transform=\"rotate(55 %.1f,%d)\">%s</text>\n",
-                x, text_y, x, text_y, label);
+        if (ts_raw > 1000000000000LL) { // epoch ms
+            seconds = (time_t)(ts_raw / 1000);
+            ms = (long)(ts_raw % 1000);
+        } else {
+            seconds = (time_t)ts_raw;
+            ms = 0;
         }
+
+        struct tm *tm_info = localtime(&seconds);
+        if (!tm_info) continue;
+
+        char base[32];
+        strftime(base, sizeof(base), "%H:%M:%S", tm_info);
+
+        char label[64];
+        snprintf(label, sizeof(label), "%s.%03ld", base, ms);
+
+        int text_y = height - bottom_pad + 35;
+
+        fprintf(f,
+            "<text x=\"%.1f\" y=\"%d\" font-size=\"12\" fill=\"#444\" "
+            "transform=\"rotate(55 %.1f,%d)\">%s</text>\n",
+            x, text_y, x, text_y, label);
     }
 
     fprintf(f, "</svg>\n");
@@ -233,9 +243,12 @@ void generate_charts_once(void) {
 
     NodeSeries nodes[MAX_NODES];
     int node_count = 0;
+    long long timeline[MAX_POINTS];
+    int timeline_count = 0;
 
     for (int i = 0; i < rows && i < MAX_POINTS; i++) {
         const char *node_id = PQgetvalue(res, i, 0);
+        long long ts = atoll(PQgetvalue(res, i, 1));
         int idx = find_or_create_node(nodes, &node_count, node_id);
         if (idx < 0) {
             continue;
@@ -244,21 +257,38 @@ void generate_charts_once(void) {
         if (node->count >= MAX_POINTS) continue;
 
         int pos = node->count;
-        node->timestamps[pos]   = atoll(PQgetvalue(res, i, 1));
+        node->timestamps[pos]   = ts;
         node->latency[pos]      = atof(PQgetvalue(res, i, 2));
         node->jitter[pos]       = atof(PQgetvalue(res, i, 3));
         node->packet_loss[pos]  = atof(PQgetvalue(res, i, 4));
         node->bandwidth[pos]    = atof(PQgetvalue(res, i, 5));
         node->count++;
+
+        // build global timeline (unique timestamps)
+        if (timeline_count < MAX_POINTS) {
+            timeline[timeline_count++] = ts;
+        }
+    }
+
+    if (timeline_count > 1) {
+        qsort(timeline, timeline_count, sizeof(long long), cmp_ll);
+        // dedupe
+        int unique = 1;
+        for (int i = 1; i < timeline_count; i++) {
+            if (timeline[i] != timeline[unique - 1]) {
+                timeline[unique++] = timeline[i];
+            }
+        }
+        timeline_count = unique;
     }
 
     PQclear(res);
     PQfinish(conn);
 
-    save_svg("latency.svg",      nodes, node_count, METRIC_LATENCY, "Latency", "ms");
-    save_svg("jitter.svg",       nodes, node_count, METRIC_JITTER, "Jitter", "ms");
-    save_svg("packet_loss.svg",  nodes, node_count, METRIC_PACKET_LOSS, "Packet Loss", "%%");
-    save_svg("bandwidth.svg",    nodes, node_count, METRIC_BANDWIDTH, "Bandwidth", "Mbps");
+    save_svg("latency.svg",      nodes, node_count, METRIC_LATENCY, "Latency", "ms", timeline, timeline_count);
+    save_svg("jitter.svg",       nodes, node_count, METRIC_JITTER, "Jitter", "ms", timeline, timeline_count);
+    save_svg("packet_loss.svg",  nodes, node_count, METRIC_PACKET_LOSS, "Packet Loss", "%%", timeline, timeline_count);
+    save_svg("bandwidth.svg",    nodes, node_count, METRIC_BANDWIDTH, "Bandwidth", "Mbps", timeline, timeline_count);
 }
 
 // ======================================================
