@@ -68,10 +68,13 @@ network={
 }
 EOF
 
-wpa_cli -i "${WLAN_IFACE}" reconfigure || systemctl restart wpa_supplicant
+wpa_cli -i "${WLAN_IFACE}" reconfigure >/dev/null 2>&1 \
+  || systemctl restart "wpa_supplicant@${WLAN_IFACE}.service" >/dev/null 2>&1 \
+  || systemctl restart wpa_supplicant >/dev/null 2>&1 \
+  || wpa_supplicant -B -i "${WLAN_IFACE}" -c /etc/wpa_supplicant/wpa_supplicant.conf
 if command -v dhclient >/dev/null 2>&1; then
   dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
-  dhclient "${WLAN_IFACE}" || true
+  dhclient "${WLAN_IFACE}" 2>/dev/null || true
 elif command -v dhcpcd >/dev/null 2>&1; then
   dhcpcd -k "${WLAN_IFACE}" 2>/dev/null || true
   dhcpcd -n "${WLAN_IFACE}"
@@ -90,6 +93,9 @@ for attempt in $(seq 1 6); do
 done
 
 echo "[3/4] Updating client/config.json with server IP and node ID..."
+export CONFIG_PATH
+export SERVER_IP
+export NODE_ID
 python3 - <<'PY'
 import json
 import os
