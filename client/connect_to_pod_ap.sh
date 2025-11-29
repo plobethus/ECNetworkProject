@@ -38,7 +38,6 @@ echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES},
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
   scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
-  # Extract SSIDs, strip whitespace, compare lowercased
   lc_ssid="$(echo "${SSID}" | tr '[:upper:]' '[:lower:]')"
   seen_list="$(echo "${scan_out}" | sed -n 's/^[[:space:]]*SSID:[[:space:]]*//Ip' | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]*$//' )"
   if echo "${seen_list}" | grep -Fxq "${lc_ssid}"; then
@@ -75,6 +74,7 @@ wpa_cli -i "${WLAN_IFACE}" reconfigure >/dev/null 2>&1 \
   || systemctl restart wpa_supplicant >/dev/null 2>&1 \
   || wpa_supplicant -B -i "${WLAN_IFACE}" -c /etc/wpa_supplicant/wpa_supplicant.conf
 
+# Force wpa_supplicant to only use the target network
 # Force wpa_supplicant to only use the target network
 wpa_cli -i "${WLAN_IFACE}" remove_network all >/dev/null 2>&1 || true
 net_id="$(wpa_cli -i "${WLAN_IFACE}" add_network | tr -d '\r')"
@@ -190,4 +190,3 @@ else
   echo "START_METRICS=0, skipping automatic launch."
   echo "Manual run: (cd /path/to/ECNetworkProject && PYTHONPATH=. python3 -m client.scheduler)"
 fi
-
