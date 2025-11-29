@@ -35,11 +35,15 @@ fi
 echo "[1/4] Scanning for SSID ${SSID} on ${WLAN_IFACE} (retries=${SCAN_RETRIES}, delay=${SCAN_DELAY_SEC}s)..."
 found=0
 for attempt in $(seq 1 "${SCAN_RETRIES}"); do
-  if iw dev "${WLAN_IFACE}" scan | grep -q "SSID: ${SSID}"; then
+  scan_out="$(iw dev "${WLAN_IFACE}" scan 2>/dev/null || true)"
+  if echo "${scan_out}" | grep -qi "SSID: ${SSID}"; then
+    echo "  found ${SSID} on attempt ${attempt}"
     found=1
     break
   fi
-  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found, sleeping ${SCAN_DELAY_SEC}s..."
+  seen="$(echo "${scan_out}" | grep -i 'SSID:' | head -n 6 | tr '\n' ';' | sed 's/;/, /g')"
+  echo "  attempt ${attempt}/${SCAN_RETRIES}: not found; nearby: ${seen}"
+  echo "  sleeping ${SCAN_DELAY_SEC}s..."
   sleep "${SCAN_DELAY_SEC}"
 done
 
