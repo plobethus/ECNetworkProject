@@ -46,9 +46,9 @@ def main():
         )
 
         if success:
-            print("  ✔ Submitted successfully\n")
+            print("  [OK] Submitted successfully\n")
         else:
-            print("  ❌ Submission failed\n")
+            print("  [X] Submission failed\n")
 
         elapsed = time.time() - loop_start
         sleep_for = max(0, interval - elapsed)

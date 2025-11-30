@@ -20,7 +20,7 @@ def main():
     channel = grpc.insecure_channel(SERVER_ADDRESS)
     client = metrics_pb2_grpc.MetricsServiceStub(channel)
 
-    print("Python Test Agent started. Sending metrics every 100ms…")
+print("Python Test Agent started. Sending metrics every 100ms...")
 
     while True:
         data = generate_fake_metrics()
@@ -36,9 +36,9 @@ def main():
 
         try:
             resp = client.SubmitMetrics(req)
-            print(f"✔ sent: {data['timestamp']} success={resp.success}")
+            print(f"[OK] sent: {data['timestamp']} success={resp.success}")
         except Exception as e:
-            print(f"❌ grpc error: {e}")
+            print(f"[X] grpc error: {e}")
 
         time.sleep(0.1)   # <-- send 10 metrics/sec
 

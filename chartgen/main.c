@@ -174,7 +174,7 @@ void save_svg(const char *filename, NodeSeries *nodes, int node_count, MetricTyp
     }
 
     // ======================================================
-    // TIMESTAMP LABELS — use longest series as reference
+// TIMESTAMP LABELS - use longest series as reference
     // ======================================================
     int label_step = MIN_LABEL_PIXEL_GAP / PX_PER_POINT;
     if (label_step < 1) label_step = 1;

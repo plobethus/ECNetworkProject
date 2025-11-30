@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system tools needed by your Python scripts
+# Install system tools needed by the Python scripts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     iperf3 \
