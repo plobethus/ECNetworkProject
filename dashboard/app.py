@@ -58,7 +58,7 @@ def events():
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        # Helps if you ever put this behind a proxy like nginx
+        # Useful when placed behind a proxy like nginx
         "X-Accel-Buffering": "no",
     }
     return Response(stream_with_context(event_stream()), headers=headers)
@@ -281,5 +281,5 @@ def ap_stop():
 
 
 if __name__ == "__main__":
-    # For local debugging, but in Docker you're using gunicorn
+    # For local debugging; Docker uses gunicorn
     app.run(host="0.0.0.0", port=8080, debug=True, threaded=True)

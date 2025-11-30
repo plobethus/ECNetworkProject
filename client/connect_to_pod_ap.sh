@@ -139,7 +139,7 @@ elif command -v dhcpcd >/dev/null 2>&1; then
   dhcpcd -k "${WLAN_IFACE}" 2>/dev/null || true
   dhcpcd -n "${WLAN_IFACE}"
 else
-  echo "Neither dhclient nor dhcpcd found; renew your IP manually." >&2
+  echo "Neither dhclient nor dhcpcd found; renew IP manually." >&2
 fi
 
 echo "[2b] Waiting for association on ${WLAN_IFACE}..."
@@ -154,7 +154,7 @@ done
 
 current_ip="$(ip -4 addr show "${WLAN_IFACE}" | awk '/inet /{print $2}')"
 if [[ "${current_ip}" != 10.42.* ]]; then
-  echo "  warning: IP is ${current_ip:-none}, expected 10.42.x.x — renewing DHCP..."
+  echo "  warning: IP is ${current_ip:-none}, expected 10.42.x.x - renewing DHCP..."
   if command -v dhclient >/dev/null 2>&1; then
     dhclient -r "${WLAN_IFACE}" 2>/dev/null || true
     dhclient "${WLAN_IFACE}" 2>/dev/null || true

@@ -13,7 +13,7 @@ def load_config(path: str = "client/config.json") -> Dict[str, Any]:
 
 class MetricsGRPCClient:
     """
-    gRPC client that sends metrics from Raspberry Pi 3 → Raspberry Pi 4.
+    gRPC client that sends metrics from Raspberry Pi 3 -> Raspberry Pi 4.
     Uses the generated metrics_pb2 and metrics_pb2_grpc classes.
     """
     def __init__(self, config: Dict[str, Any]):

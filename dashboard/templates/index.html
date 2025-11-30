@@ -101,9 +101,9 @@ function setupAutoScroll(id) {
         const maxScroll = container.scrollWidth - container.clientWidth;
 
         if (container.scrollLeft >= maxScroll - 5) {
-            autoScrollState[id].auto = true;   // back at end → resume autoscroll
+            autoScrollState[id].auto = true;   // back at end -> resume autoscroll
         } else {
-            autoScrollState[id].auto = false;  // user scrolled back → freeze
+            autoScrollState[id].auto = false;  // user scrolled back -> freeze
         }
     });
 }
@@ -210,7 +210,7 @@ function renderPods(data) {
                 <div><span class="meta-label">Packet loss</span><span class="meta-value">${fmtMetric(metrics.packet_loss, "%")}</span></div>
                 <div><span class="meta-label">Bandwidth</span><span class="meta-value">${fmtMetric(metrics.bandwidth, "Mbps")}</span></div>
             </div>
-            ${alerts.length ? `<div class="alerts">${alerts.map(a => `<div class="alert-item">⚠ ${a}</div>`).join("")}</div>` : ""}
+            ${alerts.length ? `<div class="alerts">${alerts.map(a => `<div class="alert-item">ALERT: ${a}</div>`).join("")}</div>` : ""}
         `;
         podGrid.appendChild(card);
     });
@@ -267,7 +267,7 @@ function refreshCharts() {
         const base = img.src.split("?")[0];
         img.src = `${base}?ts=${ts}`;
 
-        // if autoscroll enabled → scroll to right edge
+        // if autoscroll enabled -> scroll to right edge
         if (autoScrollState[id].auto) {
             setTimeout(() => {
                 container.scrollLeft = container.scrollWidth;
